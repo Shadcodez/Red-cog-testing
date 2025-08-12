@@ -1,12 +1,6 @@
-import json
-from pathlib import Path
+from .xfixer import XFixer
+from redbot.core.bot import Red
 
-from .retrigger import xfixer
-
-with open(Path(__file__).parent / "info.json") as fp:
-    __red_end_user_data_statement__ = json.load(fp)["end_user_data_statement"]
-
-
-async def setup(bot):
-    cog = xfixer(bot)
+async def setup(bot: Red):
+    cog = XFixer(bot)
     await bot.add_cog(cog)
