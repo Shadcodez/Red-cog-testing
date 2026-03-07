@@ -16,6 +16,12 @@ class MusicLinker(commands.Cog):
     track metadata (artist, album, track name) from the Spotify Web API.
     Without credentials it falls back to the free oEmbed endpoint, which
     only provides the track name.
+    
+    Features:
+    - Disabled by default per server (must be enabled with toggle)
+    - Channel-specific mode (restrict to one channel or all channels)
+    - Auto-reply mode (sends embeds directly)
+    - Reaction mode (adds reaction, users click to see embeds)
     """
 
     SPOTIFY_GREEN = 0x1DB954
@@ -48,10 +54,13 @@ class MusicLinker(commands.Cog):
         self.config = Config.get_conf(
             self, identifier=620983015, force_registration=True
         )
+        # Updated default_guild settings
         default_guild = {
-            "enabled": True,
+            "enabled": False,                    # CHANGED: Default to False (disabled)
+            "channel_id": 0,                     # NEW: 0 = all channels, else specific channel ID
             "show_thumbnail": True,
             "max_links_per_message": 3,
+            "use_reactions": False,              # NEW: Toggle between auto-reply and reaction mode
         }
         default_global = {
             "spotify_client_id": "",
@@ -62,6 +71,8 @@ class MusicLinker(commands.Cog):
         self._session: aiohttp.ClientSession | None = None
         self._spotify_token: str | None = None
         self._spotify_token_expires: float = 0.0
+        # Storage for tracking message links when in reaction mode
+        self._message_links: dict = {}  # {message_id: {"spotify": [...], "youtube": [...]}}
 
     # -- Session management --------------------------------------------------
 
@@ -361,8 +372,17 @@ class MusicLinker(commands.Cog):
         enabled = await guild_conf.enabled()
         thumb = await guild_conf.show_thumbnail()
         limit = await guild_conf.max_links_per_message()
+        channel_id = await guild_conf.channel_id()
+        use_reactions = await guild_conf.use_reactions()
 
         has_api = bool(await self.config.spotify_client_id())
+
+        # Channel display
+        if channel_id == 0:
+            channel_display = "All Channels"
+        else:
+            channel = ctx.guild.get_channel(channel_id)
+            channel_display = channel.mention if channel else f"Unknown ({channel_id})"
 
         embed = discord.Embed(
             title="MusicLinker Settings", color=discord.Color.blurple()
@@ -370,6 +390,16 @@ class MusicLinker(commands.Cog):
         embed.add_field(
             name="Enabled",
             value="✅ Yes" if enabled else "❌ No",
+            inline=True,
+        )
+        embed.add_field(
+            name="Channel",
+            value=channel_display,
+            inline=True,
+        )
+        embed.add_field(
+            name="React Mode",
+            value="✅ On" if use_reactions else "❌ Off",
             inline=True,
         )
         embed.add_field(
@@ -394,6 +424,37 @@ class MusicLinker(commands.Cog):
         await self.config.guild(ctx.guild).enabled.set(not current)
         state = "enabled" if not current else "disabled"
         await ctx.send(f"MusicLinker is now **{state}**.")
+
+    @musiclinker.command(name="channel")
+    async def ml_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Set the channel where MusicLinker operates (or all channels if not specified).
+        
+        Usage:
+            [p]musiclinker channel #general  - Enable in #general only
+            [p]musiclinker channel           - Enable in all channels
+        """
+        if channel is None:
+            await self.config.guild(ctx.guild).channel_id.set(0)
+            await ctx.send("MusicLinker will now operate in **all channels**.")
+        else:
+            await self.config.guild(ctx.guild).channel_id.set(channel.id)
+            await ctx.send(f"MusicLinker will now operate in {channel.mention} only.")
+
+    @musiclinker.command(name="react")
+    async def ml_react(self, ctx: commands.Context):
+        """Toggle reaction mode on or off.
+        
+        When reaction mode is ON:
+            - Bot adds 🎵 reaction to messages with music links
+            - Users click reaction to see the embed with platform links
+        
+        When reaction mode is OFF:
+            - Bot sends embeds directly (auto-reply mode)
+        """
+        current = await self.config.guild(ctx.guild).use_reactions()
+        await self.config.guild(ctx.guild).use_reactions.set(not current)
+        mode = "reaction" if not current else "auto-reply"
+        await ctx.send(f"MusicLinker is now in **{mode}** mode.")
 
     @musiclinker.command(name="thumbnail", aliases=["thumb"])
     async def ml_thumbnail(self, ctx: commands.Context):
@@ -459,7 +520,7 @@ class MusicLinker(commands.Cog):
         self._spotify_token_expires = 0.0
         await ctx.send("🗑️ Spotify API credentials have been cleared.")
 
-    # -- Listener ------------------------------------------------------------
+    # -- Listener for auto-reply mode ----------------------------------------
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -474,15 +535,43 @@ class MusicLinker(commands.Cog):
         if ctx.valid:
             return
 
-        content = message.content
+        # Check channel restriction
         guild_conf = self.config.guild(message.guild)
+        channel_id = await guild_conf.channel_id()
+        if channel_id != 0 and message.channel.id != channel_id:
+            return
+
+        content = message.content
         show_thumb = await guild_conf.show_thumbnail()
         max_links = await guild_conf.max_links_per_message()
+        use_reactions = await guild_conf.use_reactions()
 
+        # Detect links
+        spotify_matches = list(self.SPOTIFY_RE.finditer(content))
+        youtube_matches = list(self.YOUTUBE_RE.finditer(content))
+
+        if not spotify_matches and not youtube_matches:
+            return
+
+        # Reaction mode: add reaction and store data
+        if use_reactions:
+            try:
+                await message.add_reaction("🎵")
+                # Store message data for later reaction handling
+                self._message_links[message.id] = {
+                    "spotify": spotify_matches,
+                    "youtube": youtube_matches,
+                    "author_id": message.author.id,
+                }
+            except discord.Forbidden:
+                pass
+            return
+
+        # Auto-reply mode: send embeds directly
         embeds: list[discord.Embed] = []
 
         # --- Spotify tracks ---
-        for match in self.SPOTIFY_RE.finditer(content):
+        for match in spotify_matches:
             if len(embeds) >= max_links:
                 break
             track_id = match.group(1)
@@ -491,7 +580,7 @@ class MusicLinker(commands.Cog):
                 embeds.append(self._build_spotify_embed(track_info, show_thumb))
 
         # --- YouTube videos ---
-        for match in self.YOUTUBE_RE.finditer(content):
+        for match in youtube_matches:
             if len(embeds) >= max_links:
                 break
             video_id = match.group(1)
@@ -514,3 +603,81 @@ class MusicLinker(commands.Cog):
                         await message.channel.send(embed=embed)
                     except discord.HTTPException:
                         pass
+
+    # -- Listener for reaction mode ------------------------------------------
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """Handle when a user reacts to a message in reaction mode."""
+        # Only handle the music note emoji
+        if payload.emoji.name != "🎵":
+            return
+
+        # Check if this is a message we're tracking
+        if payload.message_id not in self._message_links:
+            return
+
+        # Get the guild and message
+        guild = self.bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+
+        # Verify the user who reacted is the original message author
+        msg_data = self._message_links[payload.message_id]
+        if payload.user_id != msg_data["author_id"]:
+            return
+
+        # Get the channel and message
+        channel = guild.get_channel(payload.channel_id)
+        if not channel:
+            return
+
+        try:
+            message = await channel.fetch_message(payload.message_id)
+        except discord.NotFound:
+            # Clean up if message is deleted
+            del self._message_links[payload.message_id]
+            return
+
+        guild_conf = self.config.guild(guild)
+        show_thumb = await guild_conf.show_thumbnail()
+        max_links = await guild_conf.max_links_per_message()
+
+        embeds: list[discord.Embed] = []
+
+        # --- Spotify tracks ---
+        for match in msg_data["spotify"][:max_links]:
+            track_id = match.group(1)
+            track_info = await self._fetch_spotify_track(track_id)
+            if track_info:
+                embeds.append(self._build_spotify_embed(track_info, show_thumb))
+
+        # --- YouTube videos ---
+        for match in msg_data["youtube"][:max_links - len(embeds)]:
+            video_id = match.group(1)
+            data = await self._fetch_youtube_oembed(video_id)
+            if data:
+                raw_title = data.get("title", "Unknown")
+                author = data.get("author_name", "")
+                thumb = data.get("thumbnail_url")
+                embeds.append(
+                    self._build_youtube_embed(raw_title, author, thumb, show_thumb)
+                )
+
+        # Send embeds
+        if embeds:
+            try:
+                await message.reply(embeds=embeds, mention_author=False)
+            except discord.HTTPException:
+                for embed in embeds:
+                    try:
+                        await channel.send(embed=embed)
+                    except discord.HTTPException:
+                        pass
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        """Clean up message tracking when reactions are removed."""
+        if payload.emoji.name == "🎵" and payload.message_id in self._message_links:
+            # Optional: remove tracking after a certain time or on reaction removal
+            pass
