@@ -1,0 +1,11 @@
+{
+    "author": ["ShadCodez"],
+    "install_msg": "MusicLinker has been installed!\n\nIt will automatically detect Spotify and YouTube music links and reply with a cross-platform search link and a Brave lyrics search.\n\nUse `[p]musiclinker` to configure settings.",
+    "name": "MusicLinker",
+    "short": "Cross-platform music link helper with lyrics search.",
+    "description": "Detects Spotify track links and YouTube video links in chat messages. Replies with a search link to the opposing platform (Spotify ↔ YouTube) and a Brave Search link for lyrics. Uses free oEmbed endpoints — no API keys required.",
+    "tags": ["music", "spotify", "youtube", "lyrics", "brave", "links"],
+    "requirements": [],
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog does not persistently store any end user data. It only reads message content in real time to detect music links."
+}
