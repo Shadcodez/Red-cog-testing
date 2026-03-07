@@ -367,7 +367,19 @@ class MusicLinker(commands.Cog):
     )
     @commands.admin_or_permissions(manage_guild=True)
     async def musiclinker(self, ctx: commands.Context):
-        """View or configure MusicLinker settings."""
+        """View or configure MusicLinker settings.
+        
+        Subcommands:
+        - toggle: Enable/disable MusicLinker for the server
+        - channel: Set a specific channel or all channels
+        - react: Toggle reaction mode vs auto-reply
+        - thumbnail: Toggle thumbnail display
+        - maxlinks: Set max links per message
+        - spotifyapi: Configure Spotify API credentials (owner only)
+        - clearapi: Remove Spotify API credentials (owner only)
+        """
+        # If a subcommand was invoked, this won't run
+        # Otherwise, show the current settings
         guild_conf = self.config.guild(ctx.guild)
         enabled = await guild_conf.enabled()
         thumb = await guild_conf.show_thumbnail()
