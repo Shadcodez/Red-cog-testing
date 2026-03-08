@@ -1,766 +1,438 @@
+"""
+PixelArt Cog for Red Discord Bot
+Converts images into pixel art with interactive palette and effect controls.
+
+Processing pipeline (inspired by giventofly/pixelit):
+  1. Downscale image by a configurable scale factor (BOX resampling)
+  2. Optionally convert to grayscale
+  3. Optionally map every pixel to the nearest colour in a chosen palette
+  4. Upscale back to display size with NEAREST resampling (blocky pixel look)
+"""
+
+import asyncio
+import io
 import re
-import time
-from collections import OrderedDict
-from urllib.parse import quote, quote_plus
+from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 import discord
-from redbot.core import Config, commands
-from redbot.core.bot import Red
+from PIL import Image
+from redbot.core import commands
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MAX_DIM = 2048          # max width/height after initial resize
+MAX_FILE_BYTES = 8_388_608  # 8 MB download limit
+
+URL_REGEX = re.compile(
+    r"(https?://[^\s<>\"']+\.(?:png|jpg|jpeg|gif|webp|bmp)(?:[?#][^\s<>\"']*)?)",
+    re.IGNORECASE,
+)
+
+# Pillow resampling compat (Pillow >=9.1 moved enums)
+try:
+    _NEAREST = Image.Resampling.NEAREST
+    _LANCZOS = Image.Resampling.LANCZOS
+    _BOX = Image.Resampling.BOX
+except AttributeError:
+    _NEAREST = Image.NEAREST
+    _LANCZOS = Image.LANCZOS
+    _BOX = Image.BOX
+
+# ---------------------------------------------------------------------------
+# Colour palettes  (each entry is an (R, G, B) tuple)
+# ---------------------------------------------------------------------------
+
+PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
+    "None": None,
+    "16-Bit": [
+        (26, 28, 44), (93, 39, 93), (177, 62, 83), (239, 125, 87),
+        (255, 205, 117), (167, 240, 112), (56, 183, 100), (37, 113, 121),
+        (41, 54, 111), (59, 93, 201), (65, 166, 246), (115, 239, 247),
+        (244, 244, 244), (148, 176, 194), (86, 108, 134), (51, 60, 87),
+    ],
+    "PICO-8": [
+        (0, 0, 0), (29, 43, 83), (126, 37, 83), (0, 135, 81),
+        (171, 82, 54), (95, 87, 79), (194, 195, 199), (255, 241, 232),
+        (255, 0, 77), (255, 163, 0), (255, 236, 39), (0, 228, 54),
+        (41, 173, 255), (131, 118, 156), (255, 119, 168), (255, 204, 170),
+    ],
+    "Game Boy": [
+        (15, 56, 15), (48, 98, 48), (139, 172, 15), (155, 188, 15),
+    ],
+    "Commodore 64": [
+        (0, 0, 0), (255, 255, 255), (136, 0, 0), (170, 255, 238),
+        (204, 68, 204), (0, 204, 85), (0, 0, 170), (238, 238, 119),
+        (221, 136, 85), (102, 68, 0), (255, 119, 119), (51, 51, 51),
+        (119, 119, 119), (170, 255, 102), (0, 136, 255), (187, 187, 187),
+    ],
+    "CGA": [
+        (0, 0, 0), (0, 170, 170), (170, 0, 170), (170, 170, 170),
+    ],
+    "Grayscale": [
+        (0, 0, 0), (85, 85, 85), (170, 170, 170), (255, 255, 255),
+    ],
+    "Sepia": [
+        (44, 33, 24), (90, 65, 42), (138, 109, 72), (183, 155, 110),
+        (224, 202, 162), (250, 237, 210),
+    ],
+    "Neon": [
+        (0, 0, 0), (255, 0, 102), (0, 255, 102), (0, 102, 255),
+        (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 255, 255),
+    ],
+    "Pastel": [
+        (255, 179, 186), (255, 223, 186), (255, 255, 186),
+        (186, 255, 201), (186, 225, 255), (219, 186, 255),
+    ],
+    "Autumn": [
+        (43, 24, 11), (97, 49, 24), (164, 74, 30), (204, 119, 34),
+        (230, 172, 51), (189, 140, 60), (107, 86, 47), (56, 61, 38),
+    ],
+    "Ocean": [
+        (0, 22, 51), (0, 49, 83), (0, 84, 119), (0, 131, 143),
+        (0, 180, 170), (100, 217, 197), (178, 236, 225), (240, 255, 250),
+    ],
+}
+
+PALETTE_DESCRIPTIONS: Dict[str, str] = {
+    "None": "Keep original colours",
+    "16-Bit": "Classic 16-colour retro palette",
+    "PICO-8": "Fantasy console palette",
+    "Game Boy": "4-shade green monochrome",
+    "Commodore 64": "Classic C64 colours",
+    "CGA": "4-colour CGA palette",
+    "Grayscale": "4-shade black & white",
+    "Sepia": "Warm vintage tones",
+    "Neon": "Bright vibrant colours",
+    "Pastel": "Soft pastel shades",
+    "Autumn": "Warm fall colours",
+    "Ocean": "Cool blue-green tones",
+}
+
+PALETTE_NAMES: List[str] = list(PALETTES.keys())
+
+# ---------------------------------------------------------------------------
+# Image processing helpers
+# ---------------------------------------------------------------------------
 
 
-class MusicLinker(commands.Cog):
-    """Detects Spotify and YouTube music links, then replies with
-    cross-platform search links (YouTube, Spotify, Tidal, Amazon Music)
-    and a Brave Search lyrics link.
+def _process_image(
+    img: Image.Image,
+    scale: int,
+    palette_name: str,
+    grayscale: bool,
+) -> Image.Image:
+    """Pixelate *img*, optionally mapping colours to a palette."""
+    img = img.convert("RGB")
+    orig_w, orig_h = img.size
 
-    When Spotify API credentials are configured, the bot retrieves full
-    track metadata (artist, album, track name) from the Spotify Web API.
-    Without credentials it falls back to the free oEmbed endpoint, which
-    only provides the track name.
+    scale = max(2, min(50, scale))
+    small_w = max(1, orig_w // scale)
+    small_h = max(1, orig_h // scale)
 
-    Features:
-    - Disabled by default per server (must be enabled with toggle)
-    - Channel-specific mode (restrict to one channel or all channels)
-    - Auto-reply mode (sends embeds directly)
-    - Reaction mode (adds 🎵 reaction; any user clicks to reveal embeds)
-    - Cross-platform links: YouTube, YouTube Music, Spotify, Tidal, Amazon Music
-    """
+    # Down-sample (BOX averages every block → better colour representation)
+    small = img.resize((small_w, small_h), _BOX)
 
-    SPOTIFY_GREEN = 0x1DB954
-    YOUTUBE_RED = 0xFF0000
+    if grayscale:
+        small = small.convert("L").convert("RGB")
 
-    # Maximum tracked messages for reaction mode (FIFO eviction)
-    MAX_TRACKED_MESSAGES = 500
+    palette = PALETTES.get(palette_name)
+    if palette is not None:
+        pixels = small.load()
+        for y in range(small_h):
+            for x in range(small_w):
+                r, g, b = pixels[x, y][:3]
+                best = palette[0]
+                best_d = float("inf")
+                for pr, pg, pb in palette:
+                    d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+                    if d < best_d:
+                        best_d = d
+                        best = (pr, pg, pb)
+                pixels[x, y] = best
 
-    # Matches Spotify track links (with optional /intl-xx/ prefix)
-    SPOTIFY_RE = re.compile(
-        r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([a-zA-Z0-9]{22})\S*"
-    )
+    # Up-sample with nearest-neighbour for the crisp pixel-art look
+    return small.resize((orig_w, orig_h), _NEAREST)
 
-    # Matches youtube.com, youtu.be, and music.youtube.com watch links
-    YOUTUBE_RE = re.compile(
-        r"https?://(?:(?:www\.)?youtube\.com/watch\?[^\s]*v=|youtu\.be/"
-        r"|music\.youtube\.com/watch\?[^\s]*v=)([a-zA-Z0-9_-]{11})\S*"
-    )
 
-    # Junk commonly found in YouTube titles that we want to strip
-    YT_TITLE_NOISE = re.compile(r"(?i)[\(\[\{].*?[\)\]\}]")
-    YT_TITLE_KEYWORDS = re.compile(
-        r"(?i)\b(?:official\s*(?:music\s*)?video|lyric\s*video|official\s*audio"
-        r"|audio|visualizer|performance\s*video|clip\s*officiel|remaster(?:ed)?|"
-        r"hd|hq|4k|mv)\b"
-    )
+def _image_to_file(img: Image.Image, filename: str = "pixelart.png") -> discord.File:
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return discord.File(buf, filename=filename)
 
-    # Many YouTube music titles follow "Artist - Song Name"
-    YT_ARTIST_TITLE_RE = re.compile(r"^(.+?)\s*[-–—]\s*(.+)$")
 
-    def __init__(self, bot: Red):
-        self.bot = bot
-        self.config = Config.get_conf(
-            self, identifier=620983015, force_registration=True
+# ---------------------------------------------------------------------------
+# Discord UI components
+# ---------------------------------------------------------------------------
+
+
+class PaletteSelect(discord.ui.Select):
+    """Drop-down for choosing a colour palette."""
+
+    def __init__(self) -> None:
+        options = [
+            discord.SelectOption(
+                label=name,
+                description=PALETTE_DESCRIPTIONS.get(name, ""),
+                default=(name == "None"),
+            )
+            for name in PALETTE_NAMES
+        ]
+        super().__init__(
+            placeholder="\U0001f3a8 Select a colour palette\u2026",
+            options=options,
+            min_values=1,
+            max_values=1,
+            row=0,
         )
-        default_guild = {
-            "enabled": False,
-            "channel_id": 0,
-            "show_thumbnail": True,
-            "max_links_per_message": 3,
-            "use_reactions": False,
-        }
-        default_global = {
-            "spotify_client_id": "",
-            "spotify_client_secret": "",
-        }
-        self.config.register_guild(**default_guild)
-        self.config.register_global(**default_global)
-        self._session: aiohttp.ClientSession | None = None
-        self._spotify_token: str | None = None
-        self._spotify_token_expires: float = 0.0
-        # OrderedDict for reaction-mode message tracking with FIFO eviction
-        self._message_links: OrderedDict = OrderedDict()
 
-    # -- Session management --------------------------------------------------
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view: PixelArtView = self.view  # type: ignore[assignment]
+        view.palette_name = self.values[0]
+        for opt in self.options:
+            opt.default = opt.label == self.values[0]
+        await view.refresh(interaction)
+
+
+class PixelArtView(discord.ui.View):
+    """Interactive control panel attached to the pixel-art embed."""
+
+    def __init__(
+        self,
+        ctx: commands.Context,
+        original: Image.Image,
+        *,
+        timeout: float = 180.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.ctx = ctx
+        self.original = original
+        self.scale: int = 8
+        self.palette_name: str = "None"
+        self.grayscale: bool = False
+        self.message: Optional[discord.Message] = None
+
+        self.add_item(PaletteSelect())
+
+    # -- guards & lifecycle --------------------------------------------------
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message(
+                "Only the command author can use these controls.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    async def on_timeout(self) -> None:
+        for child in self.children:
+            child.disabled = True  # type: ignore[union-attr]
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+
+    # -- helpers -------------------------------------------------------------
+
+    def _build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="\U0001f7ea Pixel Art Studio", color=discord.Color.purple())
+        lines = (
+            f"**Scale:** {self.scale}",
+            f"**Palette:** {self.palette_name}",
+            f"**Grayscale:** {'\u2705 On' if self.grayscale else '\u274c Off'}",
+        )
+        embed.description = "  \u2022  ".join(lines)
+        embed.set_image(url="attachment://pixelart.png")
+        embed.set_footer(text=f"Requested by {self.ctx.author.display_name}")
+        return embed
+
+    def _render(self) -> discord.File:
+        result = _process_image(self.original, self.scale, self.palette_name, self.grayscale)
+        return _image_to_file(result)
+
+    async def refresh(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        loop = asyncio.get_running_loop()
+        file = await loop.run_in_executor(None, self._render)
+        embed = self._build_embed()
+        await interaction.message.edit(embed=embed, attachments=[file], view=self)
+
+    # -- row 1: scale & grayscale -------------------------------------------
+
+    @discord.ui.button(label="Scale \u2212", style=discord.ButtonStyle.secondary, emoji="\u2796", row=1)
+    async def scale_down(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.scale = max(2, self.scale - 2)
+        await self.refresh(interaction)
+
+    @discord.ui.button(label="Scale +", style=discord.ButtonStyle.secondary, emoji="\u2795", row=1)
+    async def scale_up(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.scale = min(50, self.scale + 2)
+        await self.refresh(interaction)
+
+    @discord.ui.button(label="Grayscale", style=discord.ButtonStyle.primary, emoji="\U0001f532", row=1)
+    async def toggle_grayscale(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.grayscale = not self.grayscale
+        button.style = discord.ButtonStyle.success if self.grayscale else discord.ButtonStyle.primary
+        await self.refresh(interaction)
+
+    # -- row 2: save & cancel -----------------------------------------------
+
+    @discord.ui.button(label="Save", style=discord.ButtonStyle.success, emoji="\U0001f4be", row=2)
+    async def save_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        for child in self.children:
+            child.disabled = True  # type: ignore[union-attr]
+        await interaction.response.defer()
+        loop = asyncio.get_running_loop()
+        file = await loop.run_in_executor(None, self._render)
+        embed = self._build_embed()
+        embed.title = "\U0001f7ea Pixel Art (Saved)"
+        await interaction.message.edit(embed=embed, attachments=[file], view=self)
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, emoji="\u2716\ufe0f", row=2)
+    async def cancel_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except discord.HTTPException:
+            pass
+        self.stop()
+
+
+# ---------------------------------------------------------------------------
+# The cog
+# ---------------------------------------------------------------------------
+
+
+class PixelArt(commands.Cog):
+    """Convert images into pixel art with customisable palettes and effects."""
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def cog_unload(self) -> None:
+        if self.session and not self.session.closed:
+            await self.session.close()
+
+    # -- internal helpers ----------------------------------------------------
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
-
-    async def cog_unload(self):
-        if self._session and not self._session.closed:
-            await self._session.close()
-
-    # -- Spotify API token management ----------------------------------------
-
-    async def _get_spotify_token(self) -> str | None:
-        """Obtain a Spotify access token via the client-credentials flow."""
-        client_id = await self.config.spotify_client_id()
-        client_secret = await self.config.spotify_client_secret()
-        if not client_id or not client_secret:
-            return None
-
-        # Return the cached token if it is still valid (with a 60-second buffer)
-        if self._spotify_token and time.time() < self._spotify_token_expires - 60:
-            return self._spotify_token
-
-        session = await self._get_session()
-        try:
-            async with session.post(
-                "https://accounts.spotify.com/api/token",
-                data={"grant_type": "client_credentials"},
-                auth=aiohttp.BasicAuth(client_id, client_secret),
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    self._spotify_token = data["access_token"]
-                    self._spotify_token_expires = time.time() + data.get(
-                        "expires_in", 3600
-                    )
-                    return self._spotify_token
-        except Exception:
-            pass
-        return None
-
-    # -- Spotify data fetchers -----------------------------------------------
-
-    async def _fetch_spotify_track_api(self, track_id: str) -> dict | None:
-        """Fetch full track metadata from the Spotify Web API."""
-        token = await self._get_spotify_token()
-        if not token:
-            return None
-
-        session = await self._get_session()
-        try:
-            async with session.get(
-                f"https://api.spotify.com/v1/tracks/{track_id}",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    artists = ", ".join(
-                        a["name"] for a in data.get("artists", [])
-                    )
-                    album = data.get("album", {}).get("name", "")
-                    track_name = data.get("name", "Unknown Track")
-                    thumbnail = None
-                    images = data.get("album", {}).get("images", [])
-                    if images:
-                        thumbnail = images[0].get("url")
-                    return {
-                        "track_name": track_name,
-                        "artists": artists,
-                        "album": album,
-                        "thumbnail_url": thumbnail,
-                        "source": "api",
-                    }
-        except Exception:
-            pass
-        return None
-
-    async def _fetch_spotify_oembed(self, track_id: str) -> dict | None:
-        """Fetch basic metadata from Spotify's free oEmbed endpoint."""
-        url = f"https://open.spotify.com/track/{track_id}"
-        oembed = f"https://open.spotify.com/oembed?url={url}"
-        session = await self._get_session()
-        try:
-            async with session.get(
-                oembed, timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json(content_type=None)
-        except Exception:
-            pass
-        return None
-
-    async def _fetch_spotify_track(self, track_id: str) -> dict | None:
-        """Get Spotify track info.  Tries the Web API first, then oEmbed."""
-        info = await self._fetch_spotify_track_api(track_id)
-        if info:
-            return info
-
-        oembed = await self._fetch_spotify_oembed(track_id)
-        if oembed:
-            return {
-                "track_name": oembed.get("title", "Unknown Track"),
-                "artists": "",
-                "album": "",
-                "thumbnail_url": oembed.get("thumbnail_url"),
-                "source": "oembed",
-            }
-        return None
-
-    # -- YouTube data fetcher ------------------------------------------------
-
-    async def _fetch_youtube_oembed(self, video_id: str) -> dict | None:
-        """Fetch metadata from YouTube's free oEmbed endpoint."""
-        url = f"https://www.youtube.com/watch?v={video_id}"
-        oembed = f"https://www.youtube.com/oembed?url={url}&format=json"
-        session = await self._get_session()
-        try:
-            async with session.get(
-                oembed, timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status == 200:
-                    return await resp.json(content_type=None)
-        except Exception:
-            pass
-        return None
-
-    # -- Title cleaning / parsing --------------------------------------------
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+        return self.session
 
     @staticmethod
-    def _clean_yt_title(title: str) -> str:
-        """Strip noise like (Official Video) from a YouTube title."""
-        cleaned = MusicLinker.YT_TITLE_NOISE.sub("", title)
-        cleaned = MusicLinker.YT_TITLE_KEYWORDS.sub("", cleaned)
-        cleaned = re.sub(r"\s*[-–—|/\\]+\s*$", "", cleaned)
-        cleaned = re.sub(r"^\s*[-–—|/\\]+\s*", "", cleaned)
-        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
-        return cleaned or title.strip()
+    def _is_image_attachment(att: discord.Attachment) -> bool:
+        if att.content_type and att.content_type.startswith("image/"):
+            return True
+        name = (att.filename or "").lower()
+        return name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
 
-    @staticmethod
-    def _parse_yt_artist_and_song(
-        raw_title: str, channel_name: str
-    ) -> tuple[str, str]:
-        """Extract (artist, song) from a YouTube title.
+    def _resolve_image_url(self, ctx: commands.Context, url: Optional[str]) -> Optional[str]:
+        """Try every reasonable source to find an image URL."""
+        # 1 – explicit argument
+        if url:
+            return url
 
-        Many music videos use the pattern ``Artist - Song Name``.  When that
-        pattern is detected we use it directly.  Otherwise we fall back to
-        the channel name as the artist and the cleaned title as the song.
-        """
-        cleaned = MusicLinker._clean_yt_title(raw_title)
+        # 2 – attachments on the invoking message
+        for att in ctx.message.attachments:
+            if self._is_image_attachment(att):
+                return att.url
 
-        match = MusicLinker.YT_ARTIST_TITLE_RE.match(cleaned)
+        # 3 – bare URL typed in the message body
+        match = URL_REGEX.search(ctx.message.content)
         if match:
-            artist = match.group(1).strip()
-            song = match.group(2).strip()
-            song = MusicLinker.YT_TITLE_NOISE.sub("", song)
-            song = MusicLinker.YT_TITLE_KEYWORDS.sub("", song)
-            song = re.sub(r"\s{2,}", " ", song).strip()
-            if artist and song:
-                return artist, song
+            return match.group(1)
 
-        return channel_name.strip(), cleaned
+        # 4 – embeds on the invoking message (auto-embeds from pasted URLs)
+        for emb in ctx.message.embeds:
+            if emb.image and emb.image.url:
+                return emb.image.url
+            if emb.thumbnail and emb.thumbnail.url:
+                return emb.thumbnail.url
 
-    # -- Link builders -------------------------------------------------------
+        # 5 – replied-to message
+        ref = ctx.message.reference
+        if ref and isinstance(ref.resolved, discord.Message):
+            msg: discord.Message = ref.resolved
+            for att in msg.attachments:
+                if self._is_image_attachment(att):
+                    return att.url
+            for emb in msg.embeds:
+                if emb.image and emb.image.url:
+                    return emb.image.url
+                if emb.thumbnail and emb.thumbnail.url:
+                    return emb.thumbnail.url
+            match = URL_REGEX.search(msg.content or "")
+            if match:
+                return match.group(1)
 
-    @staticmethod
-    def _yt_music_search(query: str) -> str:
-        return f"https://music.youtube.com/search?q={quote_plus(query)}"
+        return None
 
-    @staticmethod
-    def _yt_search(query: str) -> str:
-        return f"https://www.youtube.com/results?search_query={quote_plus(query)}"
-
-    @staticmethod
-    def _spotify_search(query: str) -> str:
-        return f"https://open.spotify.com/search/{quote(query)}"
-
-    @staticmethod
-    def _tidal_search(query: str) -> str:
-        return f"https://tidal.com/search?q={quote_plus(query)}"
-
-    @staticmethod
-    def _amazon_music_search(query: str) -> str:
-        return f"https://music.amazon.com/search/{quote(query, safe='')}"
-
-    @staticmethod
-    def _brave_lyrics(query: str) -> str:
-        return f"https://search.brave.com/search?q={quote_plus(query + ' lyrics')}"
-
-    # -- Embed builders ------------------------------------------------------
-
-    def _build_spotify_embed(
-        self, track_info: dict, show_thumb: bool
-    ) -> discord.Embed:
-        """Build the reply embed for a detected Spotify link."""
-        track_name = track_info["track_name"]
-        artists = track_info["artists"]
-        album = track_info["album"]
-        thumbnail = track_info["thumbnail_url"]
-
-        # Display title: "Artist(s) — Track" or just "Track"
-        if artists:
-            display_title = f"{artists} — {track_name}"
-        else:
-            display_title = track_name
-
-        # Search queries include artist + song (+ album for YouTube to narrow results)
-        search_parts = [p for p in (artists, track_name) if p]
-        search_query = " ".join(search_parts)
-
-        yt_query = " ".join([p for p in (artists, track_name, album) if p])
-        platform_query = search_query
-        lyrics_query = search_query
-
-        yt_music = self._yt_music_search(yt_query)
-        yt_regular = self._yt_search(yt_query)
-        tidal = self._tidal_search(platform_query)
-        amazon = self._amazon_music_search(platform_query)
-        brave = self._brave_lyrics(lyrics_query)
-
-        embed = discord.Embed(
-            title=f"🎵  {display_title}", color=self.SPOTIFY_GREEN
-        )
-        if album:
-            embed.description = f"💿 *{album}*"
-
-        embed.add_field(
-            name="🔴  YouTube",
-            value=f"[YouTube Music]({yt_music})\n[YouTube]({yt_regular})",
-            inline=True,
-        )
-        embed.add_field(
-            name="🔗  More Platforms",
-            value=f"[Tidal]({tidal})\n[Amazon Music]({amazon})",
-            inline=True,
-        )
-        embed.add_field(
-            name="📝  Lyrics",
-            value=f"[Brave Search]({brave})",
-            inline=True,
-        )
-
-        if show_thumb and thumbnail:
-            embed.set_thumbnail(url=thumbnail)
-
-        if track_info["source"] == "oembed":
-            embed.set_footer(
-                text="MusicLinker  •  Spotify ➜ YouTube / Tidal / Amazon  •  "
-                "Tip: set Spotify API credentials for artist & album info"
-            )
-        else:
-            embed.set_footer(
-                text="MusicLinker  •  Spotify ➜ YouTube / Tidal / Amazon"
-            )
-        return embed
-
-    def _build_youtube_embed(
-        self,
-        raw_title: str,
-        author: str,
-        thumbnail: str | None,
-        show_thumb: bool,
-    ) -> discord.Embed:
-        """Build the reply embed for a detected YouTube link."""
-        artist, song = self._parse_yt_artist_and_song(raw_title, author)
-
-        platform_query = f"{artist} {song}" if artist else song
-        spotify = self._spotify_search(platform_query)
-        tidal = self._tidal_search(platform_query)
-        amazon = self._amazon_music_search(platform_query)
-        lyrics_query = f"{artist} {song}" if artist else song
-        brave = self._brave_lyrics(lyrics_query)
-
-        embed = discord.Embed(
-            title=f"🎵  {raw_title}", color=self.YOUTUBE_RED
-        )
-        if artist:
-            embed.description = f"by **{artist}**"
-
-        embed.add_field(
-            name="🟢  Spotify",
-            value=f"[Search on Spotify]({spotify})",
-            inline=True,
-        )
-        embed.add_field(
-            name="🔗  More Platforms",
-            value=f"[Tidal]({tidal})\n[Amazon Music]({amazon})",
-            inline=True,
-        )
-        embed.add_field(
-            name="📝  Lyrics",
-            value=f"[Brave Search]({brave})",
-            inline=True,
-        )
-
-        if show_thumb and thumbnail:
-            embed.set_thumbnail(url=thumbnail)
-        embed.set_footer(
-            text="MusicLinker  •  YouTube ➜ Spotify / Tidal / Amazon"
-        )
-        return embed
-
-    # -- Reaction mode helpers -----------------------------------------------
-
-    def _track_message(self, message_id: int, data: dict):
-        """Store message data for reaction mode with FIFO eviction."""
-        while len(self._message_links) >= self.MAX_TRACKED_MESSAGES:
-            self._message_links.popitem(last=False)
-        self._message_links[message_id] = data
-
-    # -- Shared embed building -----------------------------------------------
-
-    async def _build_embeds_for_links(
-        self,
-        spotify_ids: list[str],
-        youtube_ids: list[str],
-        show_thumb: bool,
-        max_links: int,
-    ) -> list[discord.Embed]:
-        """Build embed list for the given track/video IDs."""
-        embeds: list[discord.Embed] = []
-
-        for track_id in spotify_ids:
-            if len(embeds) >= max_links:
-                break
-            track_info = await self._fetch_spotify_track(track_id)
-            if track_info:
-                embeds.append(
-                    self._build_spotify_embed(track_info, show_thumb)
-                )
-
-        for video_id in youtube_ids:
-            if len(embeds) >= max_links:
-                break
-            data = await self._fetch_youtube_oembed(video_id)
-            if data:
-                raw_title = data.get("title", "Unknown")
-                author = data.get("author_name", "")
-                thumb = data.get("thumbnail_url")
-                embeds.append(
-                    self._build_youtube_embed(
-                        raw_title, author, thumb, show_thumb
-                    )
-                )
-
-        return embeds
-
-    # -- Settings commands ---------------------------------------------------
-
-    @commands.guild_only()
-    @commands.group(
-        name="musiclinker", aliases=["ml"], invoke_without_command=True
-    )
-    @commands.admin_or_permissions(manage_guild=True)
-    async def musiclinker(self, ctx: commands.Context):
-        """View or configure MusicLinker settings.
-
-        Subcommands:
-        - toggle: Enable/disable MusicLinker for the server
-        - channel: Set a specific channel or all channels
-        - react: Toggle reaction mode vs auto-reply
-        - thumbnail: Toggle thumbnail display
-        - maxlinks: Set max links per message
-        - spotifyapi: Configure Spotify API credentials (owner only)
-        - clearapi: Remove Spotify API credentials (owner only)
-        """
-        guild_conf = self.config.guild(ctx.guild)
-        enabled = await guild_conf.enabled()
-        thumb = await guild_conf.show_thumbnail()
-        limit = await guild_conf.max_links_per_message()
-        channel_id = await guild_conf.channel_id()
-        use_reactions = await guild_conf.use_reactions()
-
-        has_api = bool(await self.config.spotify_client_id())
-
-        if channel_id == 0:
-            channel_display = "All Channels"
-        else:
-            channel = ctx.guild.get_channel(channel_id)
-            channel_display = (
-                channel.mention if channel else f"Unknown ({channel_id})"
-            )
-
-        embed = discord.Embed(
-            title="MusicLinker Settings", color=discord.Color.blurple()
-        )
-        embed.add_field(
-            name="Enabled",
-            value="✅ Yes" if enabled else "❌ No",
-            inline=True,
-        )
-        embed.add_field(
-            name="Channel",
-            value=channel_display,
-            inline=True,
-        )
-        embed.add_field(
-            name="React Mode",
-            value="✅ On" if use_reactions else "❌ Off",
-            inline=True,
-        )
-        embed.add_field(
-            name="Thumbnails",
-            value="✅ Yes" if thumb else "❌ No",
-            inline=True,
-        )
-        embed.add_field(
-            name="Max links / message", value=str(limit), inline=True
-        )
-        embed.add_field(
-            name="Spotify API",
-            value="✅ Configured" if has_api else "❌ Not set",
-            inline=True,
-        )
-        await ctx.send(embed=embed)
-
-    @musiclinker.command(name="toggle")
-    async def ml_toggle(self, ctx: commands.Context):
-        """Toggle MusicLinker on or off for this server."""
-        current = await self.config.guild(ctx.guild).enabled()
-        await self.config.guild(ctx.guild).enabled.set(not current)
-        state = "enabled" if not current else "disabled"
-        await ctx.send(f"MusicLinker is now **{state}**.")
-
-    @musiclinker.command(name="channel")
-    async def ml_channel(
-        self, ctx: commands.Context, channel: discord.TextChannel = None
-    ):
-        """Set the channel where MusicLinker operates (or all channels).
-
-        Usage:
-            [p]musiclinker channel #general  - Enable in #general only
-            [p]musiclinker channel           - Enable in all channels
-        """
-        if channel is None:
-            await self.config.guild(ctx.guild).channel_id.set(0)
-            await ctx.send(
-                "MusicLinker will now operate in **all channels**."
-            )
-        else:
-            await self.config.guild(ctx.guild).channel_id.set(channel.id)
-            await ctx.send(
-                f"MusicLinker will now operate in {channel.mention} only."
-            )
-
-    @musiclinker.command(name="react")
-    async def ml_react(self, ctx: commands.Context):
-        """Toggle reaction mode on or off.
-
-        When reaction mode is ON:
-            - Bot adds 🎵 reaction to messages with music links
-            - Any user clicks the reaction to reveal cross-platform embeds
-
-        When reaction mode is OFF:
-            - Bot sends embeds directly (auto-reply mode)
-        """
-        current = await self.config.guild(ctx.guild).use_reactions()
-        await self.config.guild(ctx.guild).use_reactions.set(not current)
-        mode = "reaction" if not current else "auto-reply"
-        await ctx.send(f"MusicLinker is now in **{mode}** mode.")
-
-    @musiclinker.command(name="thumbnail", aliases=["thumb"])
-    async def ml_thumbnail(self, ctx: commands.Context):
-        """Toggle album / video thumbnail display."""
-        current = await self.config.guild(ctx.guild).show_thumbnail()
-        await self.config.guild(ctx.guild).show_thumbnail.set(not current)
-        state = "shown" if not current else "hidden"
-        await ctx.send(f"Thumbnails will now be **{state}**.")
-
-    @musiclinker.command(name="maxlinks", aliases=["limit"])
-    async def ml_maxlinks(self, ctx: commands.Context, limit: int):
-        """Set the max number of links the bot responds to per message (1-10)."""
-        limit = max(1, min(10, limit))
-        await self.config.guild(ctx.guild).max_links_per_message.set(limit)
-        await ctx.send(f"Max links per message set to **{limit}**.")
-
-    @commands.is_owner()
-    @musiclinker.command(name="spotifyapi")
-    async def ml_spotifyapi(
-        self, ctx: commands.Context, client_id: str, client_secret: str
-    ):
-        """Set Spotify API credentials (bot owner only).
-
-        1. Go to https://developer.spotify.com/dashboard
-        2. Create an app and copy the **Client ID** and **Client Secret**.
-        3. Run this command (**preferably in DMs** to keep credentials private).
-
-        **Usage:** `[p]musiclinker spotifyapi <client_id> <client_secret>`
-        """
-        await self.config.spotify_client_id.set(client_id)
-        await self.config.spotify_client_secret.set(client_secret)
-
-        self._spotify_token = None
-        self._spotify_token_expires = 0.0
-
+    async def _fetch_image(self, url: str) -> Optional[Image.Image]:
+        """Download an image and return it as a PIL Image (RGB, clamped to MAX_DIM)."""
         try:
-            await ctx.message.delete()
-        except (discord.Forbidden, discord.NotFound):
-            pass
+            session = await self._get_session()
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    return None
+                if resp.content_length and resp.content_length > MAX_FILE_BYTES:
+                    return None
+                data = await resp.read()
+                if len(data) > MAX_FILE_BYTES:
+                    return None
 
-        token = await self._get_spotify_token()
-        if token:
+            img = Image.open(io.BytesIO(data))
+            img = img.convert("RGB")
+
+            w, h = img.size
+            if w > MAX_DIM or h > MAX_DIM:
+                ratio = min(MAX_DIM / w, MAX_DIM / h)
+                img = img.resize((int(w * ratio), int(h * ratio)), _LANCZOS)
+            return img
+        except Exception:
+            return None
+
+    # -- command -------------------------------------------------------------
+
+    @commands.command(name="pixel")
+    @commands.cooldown(1, 10, commands.BucketType.user)
+    @commands.max_concurrency(3, commands.BucketType.guild, wait=False)
+    async def pixel(self, ctx: commands.Context, url: Optional[str] = None) -> None:
+        """Convert an image to pixel art.
+
+        **Ways to provide an image:**
+        • Upload an image alongside the command
+        • Paste an image URL after the command
+        • Reply to a message that contains an image
+        """
+        image_url = self._resolve_image_url(ctx, url)
+        if not image_url:
             await ctx.send(
-                "✅ Spotify API credentials saved and verified!\n"
-                "Full track metadata (artist, album) is now available."
+                "\u274c No image found. Attach an image, provide a URL, "
+                "or reply to a message containing an image."
             )
-        else:
-            await ctx.send(
-                "⚠️ Credentials saved but authentication failed. "
-                "Double-check your Client ID and Client Secret."
-            )
-
-    @commands.is_owner()
-    @musiclinker.command(name="clearapi")
-    async def ml_clearapi(self, ctx: commands.Context):
-        """Remove stored Spotify API credentials (bot owner only)."""
-        await self.config.spotify_client_id.set("")
-        await self.config.spotify_client_secret.set("")
-        self._spotify_token = None
-        self._spotify_token_expires = 0.0
-        await ctx.send("🗑️ Spotify API credentials have been cleared.")
-
-    # -- Listener: on_message ------------------------------------------------
-
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or not message.guild:
             return
 
-        enabled = await self.config.guild(message.guild).enabled()
-        if not enabled:
-            return
-
-        ctx = await self.bot.get_context(message)
-        if ctx.valid:
-            return
-
-        guild_conf = self.config.guild(message.guild)
-        channel_id = await guild_conf.channel_id()
-        if channel_id != 0 and message.channel.id != channel_id:
-            return
-
-        content = message.content
-        show_thumb = await guild_conf.show_thumbnail()
-        max_links = await guild_conf.max_links_per_message()
-        use_reactions = await guild_conf.use_reactions()
-
-        spotify_matches = list(self.SPOTIFY_RE.finditer(content))
-        youtube_matches = list(self.YOUTUBE_RE.finditer(content))
-
-        if not spotify_matches and not youtube_matches:
-            return
-
-        # Extract IDs as plain strings (safe for later use)
-        spotify_ids = [m.group(1) for m in spotify_matches]
-        youtube_ids = [m.group(1) for m in youtube_matches]
-
-        # -- Reaction mode: tag the message and store IDs --
-        if use_reactions:
-            try:
-                await message.add_reaction("🎵")
-                self._track_message(
-                    message.id,
-                    {
-                        "spotify_ids": spotify_ids,
-                        "youtube_ids": youtube_ids,
-                        "channel_id": message.channel.id,
-                        "guild_id": message.guild.id,
-                        "sent": False,
-                    },
+        async with ctx.typing():
+            img = await self._fetch_image(image_url)
+            if img is None:
+                await ctx.send(
+                    "\u274c Could not download or open that image. "
+                    "Make sure the URL is valid and the file is under 8 MB."
                 )
-            except discord.Forbidden:
-                pass
-            return
-
-        # -- Auto-reply mode: send embeds immediately --
-        embeds = await self._build_embeds_for_links(
-            spotify_ids, youtube_ids, show_thumb, max_links
-        )
-
-        if embeds:
-            try:
-                await message.reply(embeds=embeds, mention_author=False)
-            except discord.HTTPException:
-                for embed in embeds:
-                    try:
-                        await message.channel.send(embed=embed)
-                    except discord.HTTPException:
-                        pass
-
-    # -- Listener: reaction add (reaction mode) ------------------------------
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(
-        self, payload: discord.RawReactionActionEvent
-    ):
-        """When any non-bot user clicks the 🎵 reaction, send the embeds."""
-        if payload.emoji.name != "🎵":
-            return
-
-        if payload.message_id not in self._message_links:
-            return
-
-        # Ignore the bot's own reaction
-        if self.bot.user and payload.user_id == self.bot.user.id:
-            return
-
-        # Ignore other bots (member may be None for uncached members)
-        if payload.member and payload.member.bot:
-            return
-
-        msg_data = self._message_links[payload.message_id]
-
-        # Prevent duplicate sends
-        if msg_data["sent"]:
-            return
-
-        guild = self.bot.get_guild(payload.guild_id)
-        if not guild:
-            return
-
-        # Re-validate that the cog is still enabled and in reaction mode
-        guild_conf = self.config.guild(guild)
-        enabled = await guild_conf.enabled()
-        if not enabled:
-            return
-        use_reactions = await guild_conf.use_reactions()
-        if not use_reactions:
-            return
-
-        channel = guild.get_channel(payload.channel_id)
-        if not channel:
-            return
-
-        # Mark as sent immediately to prevent race conditions
-        msg_data["sent"] = True
-
-        show_thumb = await guild_conf.show_thumbnail()
-        max_links = await guild_conf.max_links_per_message()
-
-        embeds = await self._build_embeds_for_links(
-            msg_data["spotify_ids"],
-            msg_data["youtube_ids"],
-            show_thumb,
-            max_links,
-        )
-
-        if embeds:
-            try:
-                message = await channel.fetch_message(payload.message_id)
-                await message.reply(embeds=embeds, mention_author=False)
-            except discord.NotFound:
-                # Message was deleted; clean up
-                self._message_links.pop(payload.message_id, None)
                 return
-            except discord.Forbidden:
-                # No permission to fetch or reply; try a plain send
-                for embed in embeds:
-                    try:
-                        await channel.send(embed=embed)
-                    except discord.HTTPException:
-                        pass
-            except discord.HTTPException:
-                for embed in embeds:
-                    try:
-                        await channel.send(embed=embed)
-                    except discord.HTTPException:
-                        pass
 
-    # -- Listener: reaction remove (cleanup) ---------------------------------
+            view = PixelArtView(ctx, img)
+            loop = asyncio.get_running_loop()
+            file = await loop.run_in_executor(None, view._render)
+            embed = view._build_embed()
 
-    @commands.Cog.listener()
-    async def on_raw_reaction_remove(
-        self, payload: discord.RawReactionActionEvent
-    ):
-        """If the bot's 🎵 reaction is removed, stop tracking the message."""
-        if payload.emoji.name != "🎵":
-            return
-        if payload.message_id not in self._message_links:
-            return
-        # Clean up if the bot's own reaction was removed (e.g. by a moderator)
-        if self.bot.user and payload.user_id == self.bot.user.id:
-            self._message_links.pop(payload.message_id, None)
+        msg = await ctx.send(embed=embed, file=file, view=view)
+        view.message = msg
