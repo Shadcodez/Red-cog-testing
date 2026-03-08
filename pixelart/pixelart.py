@@ -27,22 +27,34 @@ URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Pillow resampling (compatible across versions)
+# Pillow resampling & quantization helpers (compatible across versions)
 try:
     Resampling = Image.Resampling
+    Dither = Image.Dither
+    Quantize = Image.Quantize
 except AttributeError:
     Resampling = Image
+    class Dither:
+        NONE = 0
+        FLOYDSTEINBERG = 1
+    class Quantize:
+        MEDIANCUT = 0
+        MAXCOVERAGE = 1
+        FASTOCTREE = 2
 
 NEAREST = Resampling.NEAREST
 BOX = Resampling.BOX
 LANCZOS = Resampling.LANCZOS
 
 # ============================================================================
-# Color Palettes
+# Color Palettes (fixed ones + adaptive markers)
 # ============================================================================
 
 PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
     "None": None,
+    "Adaptive 32": None,
+    "Adaptive 64": None,
+    "Adaptive 128": None,
     "16-Bit": [
         (26, 28, 44), (93, 39, 93), (177, 62, 83), (239, 125, 87),
         (255, 205, 117), (167, 240, 112), (56, 183, 100), (37, 113, 121),
@@ -78,12 +90,9 @@ PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
         (0, 0, 0), (255, 0, 102), (0, 255, 102), (0, 102, 255),
         (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 255, 255),
     ],
-    "Pastel": [                     # ← Updated for Easter theme
-        (249, 206, 238),           # Soft pink     #f9ceee
-        (224, 205, 255),           # Light lavender #e0cdff
-        (193, 240, 251),           # Pale cyan/mint #c1f0fb
-        (220, 249, 168),           # Light lime     #dcf9a8
-        (255, 235, 175),           # Pale peach     #ffebaf
+    "Pastel": [
+        (249, 206, 238), (224, 205, 255), (193, 240, 251),
+        (220, 249, 168), (255, 235, 175),
     ],
     "Autumn": [
         (43, 24, 11), (97, 49, 24), (164, 74, 30), (204, 119, 34),
@@ -97,7 +106,10 @@ PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
 
 PALETTE_NAMES = list(PALETTES.keys())
 PALETTE_DESCRIPTIONS = {
-    "None": "Keep original colours",
+    "None": "Keep original colours (widest range)",
+    "Adaptive 32": "Image chooses best 32 colors + dither (rich look)",
+    "Adaptive 64": "Image chooses best 64 colors + dither (good detail)",
+    "Adaptive 128": "Image chooses best 128 colors + dither (very colorful)",
     "16-Bit": "Classic 16-colour retro look",
     "PICO-8": "Fantasy console palette",
     "Game Boy": "Classic 4-shade green monochrome",
@@ -106,7 +118,7 @@ PALETTE_DESCRIPTIONS = {
     "Grayscale": "4-shade black & white",
     "Sepia": "Warm vintage photo tones",
     "Neon": "Bright glowing colours",
-    "Pastel": "Soft gentle shades",
+    "Pastel": "Soft Easter/spring pastels",
     "Autumn": "Warm fall season tones",
     "Ocean": "Cool blue-green aquatic palette",
 }
@@ -133,20 +145,37 @@ def process_image(
     if grayscale:
         small = small.convert("L").convert("RGB")
 
-    palette = PALETTES.get(palette_name)
-    if palette:
-        pixels = small.load()
-        for y in range(small_h):
-            for x in range(small_w):
-                r, g, b = pixels[x, y][:3]
-                best = palette[0]
-                best_dist = float("inf")
-                for pr, pg, pb in palette:
-                    dist = (r - pr)**2 + (g - pg)**2 + (b - pb)**2
-                    if dist < best_dist:
-                        best_dist = dist
-                        best = (pr, pg, pb)
-                pixels[x, y] = best
+    if palette_name == "None":
+        pass  # keep full color range
+
+    elif palette_name.startswith("Adaptive"):
+        try:
+            n = int(palette_name.split()[-1])
+            n = max(8, min(256, n))
+        except:
+            n = 64
+
+        small = small.quantize(
+            colors=n,
+            method=Quantize.MEDIANCUT,
+            dither=Dither.FLOYDSTEINBERG
+        ).convert("RGB")
+
+    else:
+        palette = PALETTES.get(palette_name)
+        if palette:
+            pixels = small.load()
+            for y in range(small_h):
+                for x in range(small_w):
+                    r, g, b = pixels[x, y][:3]
+                    best = palette[0]
+                    best_dist = float("inf")
+                    for pr, pg, pb in palette:
+                        dist = (r - pr)**2 + (g - pg)**2 + (b - pb)**2
+                        if dist < best_dist:
+                            best_dist = dist
+                            best = (pr, pg, pb)
+                    pixels[x, y] = best
 
     return small.resize((orig_w, orig_h), NEAREST)
 
@@ -169,10 +198,10 @@ class PaletteSelect(discord.ui.Select):
                 description=PALETTE_DESCRIPTIONS.get(name, ""),
                 default=(name == "None"),
             )
-            for name in PALETTE_NAMES
+            for name in PALETTE_NAMES if not name.startswith("Adaptive")
         ]
         super().__init__(
-            placeholder="🎨 Select palette…",
+            placeholder="🎨 Select fixed palette…",
             options=options,
             min_values=1,
             max_values=1,
@@ -182,6 +211,7 @@ class PaletteSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         view: PixelArtView = self.view  # type: ignore
         view.palette_name = self.values[0]
+        view.adaptive_mode = None
         for opt in self.options:
             opt.default = (opt.label == self.values[0])
         await view.refresh(interaction)
@@ -200,6 +230,7 @@ class PixelArtView(discord.ui.View):
         self.original = original
         self.scale: int = 8
         self.palette_name: str = "None"
+        self.adaptive_mode: Optional[str] = None  # "32", "64", "128" or None
         self.grayscale: bool = False
         self.message: Optional[discord.Message] = None
 
@@ -225,9 +256,10 @@ class PixelArtView(discord.ui.View):
             title="🖼️ Pixel Art Editor",
             color=0x2F3136,
         )
+        current = self.adaptive_mode or self.palette_name
         lines = [
             f"**Scale:** 1/{self.scale}",
-            f"**Palette:** {self.palette_name}",
+            f"**Palette / Mode:** {current}",
             f"**Grayscale:** {'On 🔳' if self.grayscale else 'Off ⚪'}",
         ]
         embed.description = " • ".join(lines)
@@ -236,17 +268,37 @@ class PixelArtView(discord.ui.View):
         return embed
 
     def render(self) -> discord.File:
-        result = process_image(self.original, self.scale, self.palette_name, self.grayscale)
+        effective_palette = self.adaptive_mode or self.palette_name
+        result = process_image(self.original, self.scale, effective_palette, self.grayscale)
         return image_to_file(result)
 
     async def refresh(self, interaction: discord.Interaction):
         await interaction.response.defer()
+
+        # Update button states
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                if child.custom_id == "adaptive_32":
+                    child.style = discord.ButtonStyle.success if self.adaptive_mode == "32" else discord.ButtonStyle.secondary
+                elif child.custom_id == "adaptive_64":
+                    child.style = discord.ButtonStyle.success if self.adaptive_mode == "64" else discord.ButtonStyle.secondary
+                elif child.custom_id == "adaptive_128":
+                    child.style = discord.ButtonStyle.success if self.adaptive_mode == "128" else discord.ButtonStyle.secondary
+                elif child.label.startswith("Grayscale"):
+                    child.label = f"Grayscale {'On' if self.grayscale else 'Off'}"
+                    child.style = discord.ButtonStyle.success if self.grayscale else discord.ButtonStyle.secondary
+
+        # Disable palette select when adaptive is active
+        for child in self.children:
+            if isinstance(child, discord.ui.Select):
+                child.disabled = bool(self.adaptive_mode)
+
         loop = asyncio.get_running_loop()
         file = await loop.run_in_executor(None, self.render)
         embed = self.build_embed()
         await interaction.message.edit(embed=embed, attachments=[file], view=self)
 
-    # Buttons ────────────────────────────────────────────────────────────────
+    # Scale & Grayscale buttons ─────────────────────────────────────────────
 
     @discord.ui.button(label="Scale −", style=discord.ButtonStyle.secondary, emoji="➖", row=1)
     async def scale_down(self, interaction: discord.Interaction, button):
@@ -261,9 +313,29 @@ class PixelArtView(discord.ui.View):
     @discord.ui.button(label="Grayscale Off", style=discord.ButtonStyle.secondary, row=1)
     async def toggle_grayscale(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.grayscale = not self.grayscale
-        button.label = f"Grayscale {'On' if self.grayscale else 'Off'}"
-        button.style = discord.ButtonStyle.success if self.grayscale else discord.ButtonStyle.secondary
         await self.refresh(interaction)
+
+    # Adaptive mode buttons ─────────────────────────────────────────────────
+
+    @discord.ui.button(label="Adaptive 32", style=discord.ButtonStyle.secondary, row=1, custom_id="adaptive_32")
+    async def adaptive_32(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.adaptive_mode = "32"
+        self.palette_name = "None"
+        await self.refresh(interaction)
+
+    @discord.ui.button(label="Adaptive 64", style=discord.ButtonStyle.secondary, row=1, custom_id="adaptive_64")
+    async def adaptive_64(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.adaptive_mode = "64"
+        self.palette_name = "None"
+        await self.refresh(interaction)
+
+    @discord.ui.button(label="Adaptive 128", style=discord.ButtonStyle.secondary, row=1, custom_id="adaptive_128")
+    async def adaptive_128(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.adaptive_mode = "128"
+        self.palette_name = "None"
+        await self.refresh(interaction)
+
+    # Save & Cancel ─────────────────────────────────────────────────────────
 
     @discord.ui.button(label="Save", style=discord.ButtonStyle.green, emoji="💾", row=2)
     async def save(self, interaction: discord.Interaction, button):
@@ -301,8 +373,6 @@ class PixelArt(commands.Cog):
     async def cog_unload(self):
         if self.session is not None and not self.session.closed:
             await self.session.close()
-
-    # ── Helpers ─────────────────────────────────────────────────────────────
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
@@ -377,8 +447,6 @@ class PixelArt(commands.Cog):
         except Exception:
             return None
 
-    # ── Command ─────────────────────────────────────────────────────────────
-
     @commands.command(name="pixel")
     @commands.cooldown(1, 12, commands.BucketType.user)
     @commands.max_concurrency(4, commands.BucketType.guild)
@@ -390,12 +458,21 @@ class PixelArt(commands.Cog):
         • Attach it to the message
         • Paste a direct image URL
         • Reply to a message containing an image
+
+        Use `[p]pixel` alone to see this help message.
         """
         image_url = self.find_image_url(ctx, url)
         if not image_url:
+            if url is None and not ctx.message.attachments and not ctx.message.reference:
+                # Plain [p]pixel → show help
+                await ctx.send_help()
+                return
+
+            # Invalid invocation (e.g. [p]pixel nonsense)
             await ctx.send(
                 "❌ No image detected.\n"
-                "Attach an image, paste a direct image URL, or reply to a message with an image."
+                "Attach an image, paste a direct image URL, or reply to a message with an image.\n\n"
+                "Use `[p]pixel` by itself to see usage help."
             )
             return
 
@@ -417,4 +494,3 @@ class PixelArt(commands.Cog):
 
             message = await ctx.send(embed=embed, file=file, view=view)
             view.message = message
-
