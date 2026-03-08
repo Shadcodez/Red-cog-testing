@@ -1,7 +1,6 @@
 """
 PixelArt Cog for Red Discord Bot
 Converts images into pixel art with interactive controls.
-Inspired by giventofly/pixelit.
 """
 
 import asyncio
@@ -11,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 import discord
-from PIL import Image
+from PIL import Image, ImageOps
 from redbot.core import commands
 from redbot.core.bot import Red
 
@@ -19,35 +18,16 @@ from redbot.core.bot import Red
 # Constants
 # ============================================================================
 
-MAX_DIMENSION = 2048
-MAX_FILE_SIZE = 8_388_608  # 8 MiB
+MAX_DIM = 2048
+MAX_FILE_BYTES = 8_388_608  # 8 MiB
 
-URL_PATTERN = re.compile(
+URL_REGEX = re.compile(
     r"(https?://[^\s<>\"']+\.(?:png|jpg|jpeg|gif|webp|bmp)(?:[?#][^\s<>\"']*)?)",
     re.IGNORECASE,
 )
 
-# Pillow resampling & quantization helpers (compatible across versions)
-try:
-    Resampling = Image.Resampling
-    Dither = Image.Dither
-    Quantize = Image.Quantize
-except AttributeError:
-    Resampling = Image
-    class Dither:
-        NONE = 0
-        FLOYDSTEINBERG = 1
-    class Quantize:
-        MEDIANCUT = 0
-        MAXCOVERAGE = 1
-        FASTOCTREE = 2
-
-NEAREST = Resampling.NEAREST
-BOX = Resampling.BOX
-LANCZOS = Resampling.LANCZOS
-
 # ============================================================================
-# Color Palettes
+# Palettes
 # ============================================================================
 
 PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
@@ -67,21 +47,15 @@ PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
         (255, 0, 77), (255, 163, 0), (255, 236, 39), (0, 228, 54),
         (41, 173, 255), (131, 118, 156), (255, 119, 168), (255, 204, 170),
     ],
-    "Game Boy": [
-        (15, 56, 15), (48, 98, 48), (139, 172, 15), (155, 188, 15),
-    ],
+    "Game Boy": [(15, 56, 15), (48, 98, 48), (139, 172, 15), (155, 188, 15)],
     "Commodore 64": [
         (0, 0, 0), (255, 255, 255), (136, 0, 0), (170, 255, 238),
         (204, 68, 204), (0, 204, 85), (0, 0, 170), (238, 238, 119),
         (221, 136, 85), (102, 68, 0), (255, 119, 119), (51, 51, 51),
         (119, 119, 119), (170, 255, 102), (0, 136, 255), (187, 187, 187),
     ],
-    "CGA": [
-        (0, 0, 0), (0, 170, 170), (170, 0, 170), (170, 170, 170),
-    ],
-    "Grayscale": [
-        (0, 0, 0), (85, 85, 85), (170, 170, 170), (255, 255, 255),
-    ],
+    "CGA": [(0, 0, 0), (0, 170, 170), (170, 0, 170), (170, 170, 170)],
+    "Grayscale": [(0, 0, 0), (85, 85, 85), (170, 170, 170), (255, 255, 255)],
     "Sepia": [
         (44, 33, 24), (90, 65, 42), (138, 109, 72), (183, 155, 110),
         (224, 202, 162), (250, 237, 210),
@@ -104,7 +78,6 @@ PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
     ],
 }
 
-PALETTE_NAMES = list(PALETTES.keys())
 PALETTE_DESCRIPTIONS = {
     "None": "Keep original colours (widest range)",
     "Adaptive 32": "Image chooses best 32 colors + dither (rich look)",
@@ -124,41 +97,35 @@ PALETTE_DESCRIPTIONS = {
 }
 
 # ============================================================================
-# Processing
+# Image Processing
 # ============================================================================
 
-def process_image(
-    img: Image.Image,
-    scale: int,
-    palette_name: str,
-    grayscale: bool,
-) -> Image.Image:
+def process_image(img: Image.Image, scale: int, palette_name: str, grayscale: bool) -> Image.Image:
     img = img.convert("RGB")
     orig_w, orig_h = img.size
 
     scale = max(2, min(50, scale))
-    small_w = max(1, orig_w // scale)
-    small_h = max(1, orig_h // scale)
+    small_w, small_h = max(1, orig_w // scale), max(1, orig_h // scale)
 
-    small = img.resize((small_w, small_h), BOX)
+    small = img.resize((small_w, small_h), Image.BOX)
 
     if grayscale:
-        small = small.convert("L").convert("RGB")
+        small = ImageOps.grayscale(small).convert("RGB")
 
     if palette_name == "None":
         pass
 
     elif palette_name.startswith("Adaptive"):
         try:
-            n = int(palette_name.split()[-1])
-            n = max(8, min(256, n))
+            n_colors = int(palette_name.split()[-1])
+            n_colors = max(8, min(256, n_colors))
         except:
-            n = 64
+            n_colors = 64
 
         small = small.quantize(
-            colors=n,
-            method=Quantize.MEDIANCUT,
-            dither=Dither.FLOYDSTEINBERG
+            colors=n_colors,
+            method=0,  # MEDIANCUT
+            dither=1   # FLOYDSTEINBERG
         ).convert("RGB")
 
     else:
@@ -167,38 +134,29 @@ def process_image(
             pixels = small.load()
             for y in range(small_h):
                 for x in range(small_w):
-                    r, g, b = pixels[x, y][:3]
-                    best = palette[0]
-                    best_dist = float("inf")
-                    for pr, pg, pb in palette:
-                        dist = (r - pr)**2 + (g - pg)**2 + (b - pb)**2
-                        if dist < best_dist:
-                            best_dist = dist
-                            best = (pr, pg, pb)
+                    r, g, b = pixels[x, y]
+                    best = min(palette, key=lambda c: (r-c[0])**2 + (g-c[1])**2 + (b-c[2])**2)
                     pixels[x, y] = best
 
-    return small.resize((orig_w, orig_h), NEAREST)
+    return small.resize((orig_w, orig_h), Image.NEAREST)
 
 
-def image_to_file(img: Image.Image, filename: str = "pixelart.png") -> discord.File:
+def to_discord_file(img: Image.Image, filename: str = "pixelart.png") -> discord.File:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
     return discord.File(buf, filename=filename)
 
 # ============================================================================
-# UI Components
+# UI
 # ============================================================================
 
 class PaletteSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(
-                label=name,
-                description=PALETTE_DESCRIPTIONS.get(name, ""),
-                default=(name == "None"),
-            )
-            for name in PALETTE_NAMES if not name.startswith("Adaptive")
+            discord.SelectOption(label=k, description=v, default=(k == "None"))
+            for k, v in PALETTE_DESCRIPTIONS.items()
+            if not k.startswith("Adaptive")
         ]
         super().__init__(
             placeholder="🎨 Select fixed palette…",
@@ -209,36 +167,30 @@ class PaletteSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        view: PixelArtView = self.view  # type: ignore
+        view: PixelArtView = self.view
         view.palette_name = self.values[0]
         view.adaptive_mode = None
-        for opt in self.options:
-            opt.default = (opt.label == self.values[0])
+        for o in self.options:
+            o.default = o.label == self.values[0]
         await view.refresh(interaction)
 
 
 class PixelArtView(discord.ui.View):
-    def __init__(
-        self,
-        ctx: commands.Context,
-        original: Image.Image,
-        *,
-        timeout: float = 180.0,
-    ):
+    def __init__(self, ctx: commands.Context, original: Image.Image, timeout: float = 180):
         super().__init__(timeout=timeout)
         self.ctx = ctx
         self.original = original
-        self.scale: int = 8
-        self.palette_name: str = "None"
+        self.scale = 8
+        self.palette_name = "None"
         self.adaptive_mode: Optional[str] = None
-        self.grayscale: bool = False
+        self.grayscale = False
         self.message: Optional[discord.Message] = None
 
         self.add_item(PaletteSelect())
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user != self.ctx.author:
-            await interaction.response.send_message("Only the command author can use these controls.", ephemeral=True)
+            await interaction.response.send_message("Only the command author can use this.", ephemeral=True)
             return False
         return True
 
@@ -248,40 +200,33 @@ class PixelArtView(discord.ui.View):
         if self.message:
             try:
                 await self.message.edit(view=self)
-            except discord.HTTPException:
+            except:
                 pass
 
     def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="🖼️ Pixel Art Editor",
-            color=0x2F3136,
-        )
         current = self.adaptive_mode or self.palette_name
-        lines = [
-            f"**Scale:** 1/{self.scale}",
-            f"**Palette / Mode:** {current}",
-            f"**Grayscale:** {'On 🔳' if self.grayscale else 'Off ⚪'}",
-        ]
-        embed.description = " • ".join(lines)
+        embed = discord.Embed(title="🖼️ Pixel Art Editor", color=0x2F3136)
+        embed.description = f"**Scale:** 1/{self.scale} • **Mode:** {current} • **Grayscale:** {'On' if self.grayscale else 'Off'}"
         embed.set_image(url="attachment://pixelart.png")
-        embed.set_footer(text=f"Requested by {self.ctx.author.display_name}")
+        embed.set_footer(text=f"By {self.ctx.author.display_name}")
         return embed
 
     def render(self) -> discord.File:
-        effective_palette = self.adaptive_mode or self.palette_name
-        result = process_image(self.original, self.scale, effective_palette, self.grayscale)
-        return image_to_file(result)
+        mode = self.adaptive_mode or self.palette_name
+        result = process_image(self.original, self.scale, mode, self.grayscale)
+        return to_discord_file(result)
 
     async def refresh(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
         for child in self.children:
             if isinstance(child, discord.ui.Button):
-                if child.custom_id == "adaptive_32":
+                cid = getattr(child, "custom_id", None)
+                if cid == "adaptive_32":
                     child.style = discord.ButtonStyle.success if self.adaptive_mode == "32" else discord.ButtonStyle.secondary
-                elif child.custom_id == "adaptive_64":
+                elif cid == "adaptive_64":
                     child.style = discord.ButtonStyle.success if self.adaptive_mode == "64" else discord.ButtonStyle.secondary
-                elif child.custom_id == "adaptive_128":
+                elif cid == "adaptive_128":
                     child.style = discord.ButtonStyle.success if self.adaptive_mode == "128" else discord.ButtonStyle.secondary
                 elif child.label.startswith("Grayscale"):
                     child.label = f"Grayscale {'On' if self.grayscale else 'Off'}"
@@ -291,63 +236,62 @@ class PixelArtView(discord.ui.View):
             if isinstance(child, discord.ui.Select):
                 child.disabled = bool(self.adaptive_mode)
 
-        loop = asyncio.get_running_loop()
-        file = await loop.run_in_executor(None, self.render)
+        file = await asyncio.to_thread(self.render)
         embed = self.build_embed()
         await interaction.message.edit(embed=embed, attachments=[file], view=self)
 
+    # Buttons
     @discord.ui.button(label="Scale −", style=discord.ButtonStyle.secondary, emoji="➖", row=1)
-    async def scale_down(self, interaction: discord.Interaction, button):
+    async def scale_down(self, i: discord.Interaction, _):
         self.scale = max(2, self.scale - 2)
-        await self.refresh(interaction)
+        await self.refresh(i)
 
     @discord.ui.button(label="Scale +", style=discord.ButtonStyle.secondary, emoji="➕", row=1)
-    async def scale_up(self, interaction: discord.Interaction, button):
+    async def scale_up(self, i: discord.Interaction, _):
         self.scale = min(50, self.scale + 2)
-        await self.refresh(interaction)
+        await self.refresh(i)
 
     @discord.ui.button(label="Grayscale Off", style=discord.ButtonStyle.secondary, row=1)
-    async def toggle_grayscale(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def toggle_grayscale(self, i: discord.Interaction, btn: discord.ui.Button):
         self.grayscale = not self.grayscale
-        await self.refresh(interaction)
+        await self.refresh(i)
 
     @discord.ui.button(label="Adaptive 32", style=discord.ButtonStyle.secondary, row=1, custom_id="adaptive_32")
-    async def adaptive_32(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def adaptive_32(self, i: discord.Interaction, _):
         self.adaptive_mode = "32"
         self.palette_name = "None"
-        await self.refresh(interaction)
+        await self.refresh(i)
 
     @discord.ui.button(label="Adaptive 64", style=discord.ButtonStyle.secondary, row=1, custom_id="adaptive_64")
-    async def adaptive_64(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def adaptive_64(self, i: discord.Interaction, _):
         self.adaptive_mode = "64"
         self.palette_name = "None"
-        await self.refresh(interaction)
+        await self.refresh(i)
 
     @discord.ui.button(label="Adaptive 128", style=discord.ButtonStyle.secondary, row=1, custom_id="adaptive_128")
-    async def adaptive_128(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def adaptive_128(self, i: discord.Interaction, _):
         self.adaptive_mode = "128"
         self.palette_name = "None"
-        await self.refresh(interaction)
+        await self.refresh(i)
 
     @discord.ui.button(label="Save", style=discord.ButtonStyle.green, emoji="💾", row=2)
-    async def save(self, interaction: discord.Interaction, button):
+    async def save(self, i: discord.Interaction, _):
         for child in self.children:
             child.disabled = True
-        await interaction.response.defer()
-        loop = asyncio.get_running_loop()
-        file = await loop.run_in_executor(None, self.render)
+        await i.response.defer()
+        file = await asyncio.to_thread(self.render)
         embed = self.build_embed()
         embed.title = "🖼️ Pixel Art (Saved)"
         embed.color = discord.Color.green()
-        await interaction.message.edit(embed=embed, attachments=[file], view=self)
+        await i.message.edit(embed=embed, attachments=[file], view=self)
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red, emoji="✖", row=2)
-    async def cancel(self, interaction: discord.Interaction, button):
-        await interaction.response.defer()
+    async def cancel(self, i: discord.Interaction, _):
+        await i.response.defer()
         try:
-            await interaction.message.delete()
-        except discord.HTTPException:
+            await i.message.delete()
+        except:
             pass
         self.stop()
 
@@ -356,103 +300,94 @@ class PixelArtView(discord.ui.View):
 # ============================================================================
 
 class PixelArt(commands.Cog):
-    """Convert images to pixel art with adjustable scale, palette and grayscale."""
+    """Convert images to pixel art."""
 
     def __init__(self, bot: Red):
         self.bot = bot
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def cog_unload(self):
-        if self.session is not None and not self.session.closed:
+        if self.session:
             await self.session.close()
 
-    async def _get_session(self) -> aiohttp.ClientSession:
+    async def _session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession()
         return self.session
 
     @staticmethod
-    def is_image_attachment(att: discord.Attachment) -> bool:
+    def is_image(att: discord.Attachment) -> bool:
         if att.content_type and att.content_type.startswith("image/"):
             return True
-        name = (att.filename or "").lower()
-        return name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
+        return (att.filename or "").lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
 
-    def find_image_url(self, ctx: commands.Context, given_url: Optional[str]) -> Optional[str]:
-        if given_url:
-            return given_url
+    async def find_image_url(self, ctx: commands.Context, given: Optional[str]) -> Optional[str]:
+        if given:
+            return given
 
-        # Command message attachments
         for att in ctx.message.attachments:
-            if self.is_image_attachment(att):
+            if self.is_image(att):
                 return att.url
 
-        # URL in command message content
-        match = URL_PATTERN.search(ctx.message.content)
-        if match:
-            return match.group(0)
+        m = URL_REGEX.search(ctx.message.content)
+        if m:
+            return m.group(0)
 
-        # Embeds in command message
-        for embed in ctx.message.embeds:
-            if embed.image and embed.image.url:
-                return embed.image.url
-            if embed.thumbnail and embed.thumbnail.url:
-                return embed.thumbnail.url
+        for e in ctx.message.embeds:
+            if e.image and e.image.url:
+                return e.image.url
+            if e.thumbnail and e.thumbnail.url:
+                return e.thumbnail.url
 
-        # Replied-to message
         ref = ctx.message.reference
         if ref and ref.message_id:
             try:
-                if isinstance(ref.resolved, discord.Message):
+                if ref.resolved and isinstance(ref.resolved, discord.Message):
                     msg = ref.resolved
                 else:
-                    channel = ref.channel or ctx.channel
-                    msg = await channel.fetch_message(ref.message_id)
+                    ch = ref.channel or ctx.channel
+                    msg = await ch.fetch_message(ref.message_id)
 
                 for att in msg.attachments:
-                    if self.is_image_attachment(att):
+                    if self.is_image(att):
                         return att.url
 
-                for embed in msg.embeds:
-                    if embed.image and embed.image.url:
-                        return embed.image.url
-                    if embed.thumbnail and embed.thumbnail.url:
-                        return embed.thumbnail.url
+                for e in msg.embeds:
+                    if e.image and e.image.url:
+                        return e.image.url
+                    if e.thumbnail and e.thumbnail.url:
+                        return e.thumbnail.url
 
                 if msg.content:
-                    match = URL_PATTERN.search(msg.content)
-                    if match:
-                        return match.group(0)
-
-            except Exception:
-                # Any error during reply fetch/processing → treat as no image
-                pass
+                    m = URL_REGEX.search(msg.content)
+                    if m:
+                        return m.group(0)
+            except:
+                pass  # failed to fetch / no access / deleted → no image
 
         return None
 
     async def download_image(self, url: str) -> Optional[Image.Image]:
         try:
-            session = await self._get_session()
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
+            session = await self._session()
+            async with session.get(url, timeout=15) as r:
+                if r.status != 200:
                     return None
-                if resp.content_length and resp.content_length > MAX_FILE_SIZE:
+                if r.content_length and r.content_length > MAX_FILE_BYTES:
                     return None
-                data = await resp.read()
-                if len(data) > MAX_FILE_SIZE:
+                data = await r.read()
+                if len(data) > MAX_FILE_BYTES:
                     return None
 
-            img = Image.open(io.BytesIO(data))
-            img = img.convert("RGB")
+            img = Image.open(io.BytesIO(data)).convert("RGB")
 
             w, h = img.size
-            if w > MAX_DIMENSION or h > MAX_DIMENSION:
-                ratio = min(MAX_DIMENSION / w, MAX_DIMENSION / h)
-                new_size = (int(w * ratio), int(h * ratio))
-                img = img.resize(new_size, LANCZOS)
+            if w > MAX_DIM or h > MAX_DIM:
+                r = min(MAX_DIM / w, MAX_DIM / h)
+                img = img.resize((int(w * r), int(h * r)), Image.LANCZOS)
 
             return img
-        except Exception:
+        except:
             return None
 
     @commands.command(name="pixel")
@@ -461,42 +396,26 @@ class PixelArt(commands.Cog):
     async def pixel(self, ctx: commands.Context, *, url: Optional[str] = None):
         """
         Convert an image to pixel art.
-
-        Ways to provide an image:
-        • Attach it to the message
-        • Paste a direct image URL
-        • Reply to a message containing an image
-
-        Use `[p]pixel` alone to see this help message.
+        Reply to / attach / link an image, or use [p]pixel alone for help.
         """
-        image_url = self.find_image_url(ctx, url)
+        image_url = await self.find_image_url(ctx, url)
 
         if not image_url:
-            # No valid image source found at all
-            if url is None and not ctx.message.attachments and not ctx.message.reference:
-                # Completely empty invocation → show help
+            if not url and not ctx.message.attachments and not ctx.message.reference:
                 await ctx.send_help()
                 return
-
-            # Any other case where we couldn't find/process an image
             await ctx.send("Sorry, I was unable to process this request.")
             return
 
         async with ctx.typing():
             img = await self.download_image(image_url)
-            if img is None:
-                await ctx.send(
-                    "❌ Failed to download or open the image.\n"
-                    "• URL might be invalid\n"
-                    "• File > 8 MB\n"
-                    "• Not a supported image format"
-                )
+            if not img:
+                await ctx.send("Sorry, I was unable to process this request.")
                 return
 
             view = PixelArtView(ctx, img)
-            loop = asyncio.get_running_loop()
-            file = await loop.run_in_executor(None, view.render)
+            file = await asyncio.to_thread(view.render)
             embed = view.build_embed()
 
-            message = await ctx.send(embed=embed, file=file, view=view)
-            view.message = message
+            msg = await ctx.send(embed=embed, file=file, view=view)
+            view.message = msg
