@@ -47,7 +47,7 @@ BOX = Resampling.BOX
 LANCZOS = Resampling.LANCZOS
 
 # ============================================================================
-# Color Palettes (fixed ones + adaptive markers)
+# Color Palettes
 # ============================================================================
 
 PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
@@ -146,7 +146,7 @@ def process_image(
         small = small.convert("L").convert("RGB")
 
     if palette_name == "None":
-        pass  # keep full color range
+        pass
 
     elif palette_name.startswith("Adaptive"):
         try:
@@ -187,7 +187,7 @@ def image_to_file(img: Image.Image, filename: str = "pixelart.png") -> discord.F
     return discord.File(buf, filename=filename)
 
 # ============================================================================
-# UI
+# UI Components
 # ============================================================================
 
 class PaletteSelect(discord.ui.Select):
@@ -230,7 +230,7 @@ class PixelArtView(discord.ui.View):
         self.original = original
         self.scale: int = 8
         self.palette_name: str = "None"
-        self.adaptive_mode: Optional[str] = None  # "32", "64", "128" or None
+        self.adaptive_mode: Optional[str] = None
         self.grayscale: bool = False
         self.message: Optional[discord.Message] = None
 
@@ -275,7 +275,6 @@ class PixelArtView(discord.ui.View):
     async def refresh(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        # Update button states
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 if child.custom_id == "adaptive_32":
@@ -288,7 +287,6 @@ class PixelArtView(discord.ui.View):
                     child.label = f"Grayscale {'On' if self.grayscale else 'Off'}"
                     child.style = discord.ButtonStyle.success if self.grayscale else discord.ButtonStyle.secondary
 
-        # Disable palette select when adaptive is active
         for child in self.children:
             if isinstance(child, discord.ui.Select):
                 child.disabled = bool(self.adaptive_mode)
@@ -297,8 +295,6 @@ class PixelArtView(discord.ui.View):
         file = await loop.run_in_executor(None, self.render)
         embed = self.build_embed()
         await interaction.message.edit(embed=embed, attachments=[file], view=self)
-
-    # Scale & Grayscale buttons ─────────────────────────────────────────────
 
     @discord.ui.button(label="Scale −", style=discord.ButtonStyle.secondary, emoji="➖", row=1)
     async def scale_down(self, interaction: discord.Interaction, button):
@@ -314,8 +310,6 @@ class PixelArtView(discord.ui.View):
     async def toggle_grayscale(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.grayscale = not self.grayscale
         await self.refresh(interaction)
-
-    # Adaptive mode buttons ─────────────────────────────────────────────────
 
     @discord.ui.button(label="Adaptive 32", style=discord.ButtonStyle.secondary, row=1, custom_id="adaptive_32")
     async def adaptive_32(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -334,8 +328,6 @@ class PixelArtView(discord.ui.View):
         self.adaptive_mode = "128"
         self.palette_name = "None"
         await self.refresh(interaction)
-
-    # Save & Cancel ─────────────────────────────────────────────────────────
 
     @discord.ui.button(label="Save", style=discord.ButtonStyle.green, emoji="💾", row=2)
     async def save(self, interaction: discord.Interaction, button):
@@ -390,35 +382,51 @@ class PixelArt(commands.Cog):
         if given_url:
             return given_url
 
+        # Command message attachments
         for att in ctx.message.attachments:
             if self.is_image_attachment(att):
                 return att.url
 
+        # URL in command message content
         match = URL_PATTERN.search(ctx.message.content)
         if match:
             return match.group(0)
 
+        # Embeds in command message
         for embed in ctx.message.embeds:
             if embed.image and embed.image.url:
                 return embed.image.url
             if embed.thumbnail and embed.thumbnail.url:
                 return embed.thumbnail.url
 
+        # Replied-to message
         ref = ctx.message.reference
-        if ref and isinstance(ref.resolved, discord.Message):
-            msg: discord.Message = ref.resolved
-            for att in msg.attachments:
-                if self.is_image_attachment(att):
-                    return att.url
-            for embed in msg.embeds:
-                if embed.image and embed.image.url:
-                    return embed.image.url
-                if embed.thumbnail and embed.thumbnail.url:
-                    return embed.thumbnail.url
-            if msg.content:
-                match = URL_PATTERN.search(msg.content)
-                if match:
-                    return match.group(0)
+        if ref and ref.message_id:
+            try:
+                if isinstance(ref.resolved, discord.Message):
+                    msg = ref.resolved
+                else:
+                    channel = ref.channel or ctx.channel
+                    msg = await channel.fetch_message(ref.message_id)
+
+                for att in msg.attachments:
+                    if self.is_image_attachment(att):
+                        return att.url
+
+                for embed in msg.embeds:
+                    if embed.image and embed.image.url:
+                        return embed.image.url
+                    if embed.thumbnail and embed.thumbnail.url:
+                        return embed.thumbnail.url
+
+                if msg.content:
+                    match = URL_PATTERN.search(msg.content)
+                    if match:
+                        return match.group(0)
+
+            except Exception:
+                # Any error during reply fetch/processing → treat as no image
+                pass
 
         return None
 
@@ -462,18 +470,16 @@ class PixelArt(commands.Cog):
         Use `[p]pixel` alone to see this help message.
         """
         image_url = self.find_image_url(ctx, url)
+
         if not image_url:
+            # No valid image source found at all
             if url is None and not ctx.message.attachments and not ctx.message.reference:
-                # Plain [p]pixel → show help
+                # Completely empty invocation → show help
                 await ctx.send_help()
                 return
 
-            # Invalid invocation (e.g. [p]pixel nonsense)
-            await ctx.send(
-                "❌ No image detected.\n"
-                "Attach an image, paste a direct image URL, or reply to a message with an image.\n\n"
-                "Use `[p]pixel` by itself to see usage help."
-            )
+            # Any other case where we couldn't find/process an image
+            await ctx.send("Sorry, I was unable to process this request.")
             return
 
         async with ctx.typing():
