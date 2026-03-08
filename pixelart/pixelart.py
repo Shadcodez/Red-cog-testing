@@ -78,9 +78,12 @@ PALETTES: Dict[str, Optional[List[Tuple[int, int, int]]]] = {
         (0, 0, 0), (255, 0, 102), (0, 255, 102), (0, 102, 255),
         (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 255, 255),
     ],
-    "Pastel": [
-        (255, 179, 186), (255, 223, 186), (255, 255, 186),
-        (186, 255, 201), (186, 225, 255), (219, 186, 255),
+    "Pastel": [                     # ← Updated for Easter theme
+        (249, 206, 238),           # Soft pink     #f9ceee
+        (224, 205, 255),           # Light lavender #e0cdff
+        (193, 240, 251),           # Pale cyan/mint #c1f0fb
+        (220, 249, 168),           # Light lime     #dcf9a8
+        (255, 235, 175),           # Pale peach     #ffebaf
     ],
     "Autumn": [
         (43, 24, 11), (97, 49, 24), (164, 74, 30), (204, 119, 34),
@@ -414,3 +417,4 @@ class PixelArt(commands.Cog):
 
             message = await ctx.send(embed=embed, file=file, view=view)
             view.message = message
+
