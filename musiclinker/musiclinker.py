@@ -5,7 +5,7 @@ from urllib.parse import quote, quote_plus
 
 import aiohttp
 import discord
-from discord.ui import Modal, TextInput, View, Button
+from discord.ui import Modal, TextInput, View, button
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.utils.menus import start_adding_reactions
@@ -393,25 +393,37 @@ class MusicLinker(commands.Cog):
 
     class SetupView(View):
         def __init__(self, cog):
-            super().__init__(timeout=None)  # persistent
+            super().__init__(timeout=None)  # persistent view
             self.cog = cog
 
-        @Button(label="Get Spotify Keys", style=discord.ButtonStyle.url, url="https://developer.spotify.com/dashboard/applications")
-        async def get_keys(self, interaction: discord.Interaction, button: Button):
+        @button(
+            label="Get Spotify Keys",
+            style=discord.ButtonStyle.url,
+            url="https://developer.spotify.com/dashboard/applications"
+        )
+        async def get_keys(self, interaction: discord.Interaction, button: discord.ui.Button):
             await interaction.response.send_message(
                 "Spotify Developer Dashboard opened in your browser.",
                 ephemeral=True
             )
 
-        @Button(label="Set Spotify API Keys", custom_id="ml_set_spotify_keys", style=discord.ButtonStyle.blurple)
-        async def set_keys(self, interaction: discord.Interaction, button: Button):
+        @button(
+            label="Set Spotify API Keys",
+            custom_id="ml_set_spotify_keys",
+            style=discord.ButtonStyle.blurple
+        )
+        async def set_keys(self, interaction: discord.Interaction, button: discord.ui.Button):
             if not await self.cog.bot.is_owner(interaction.user):
                 await interaction.response.send_message("Only the bot owner can set API keys.", ephemeral=True)
                 return
             await interaction.response.send_modal(MusicLinker.SpotifyApiModal(self.cog))
 
-        @Button(label="View Settings", custom_id="ml_view_settings", style=discord.ButtonStyle.grey)
-        async def view_settings(self, interaction: discord.Interaction, button: Button):
+        @button(
+            label="View Settings",
+            custom_id="ml_view_settings",
+            style=discord.ButtonStyle.grey
+        )
+        async def view_settings(self, interaction: discord.Interaction, button: discord.ui.Button):
             ctx = await self.cog.bot.get_context(interaction.message)
             ctx.author = interaction.user
             ctx.channel = interaction.channel
