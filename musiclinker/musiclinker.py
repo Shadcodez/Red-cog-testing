@@ -589,7 +589,9 @@ class MusicLinker(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
-        passimport re
+pass
+
+import re
 import time
 from collections import OrderedDict
 from urllib.parse import quote, quote_plus
