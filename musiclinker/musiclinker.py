@@ -192,40 +192,48 @@ class MusicLinker(commands.Cog):
     # The rest of the subcommands remain unchanged
     # Just make sure they are properly attached under the group
 
-    @musiclinker.command(name="toggle")
-    async def ml_toggle(self, ctx: commands.Context):
-        # ... (same as original)
-        pass
+@musiclinker.command(name="toggle")
+async def ml_toggle(self, ctx: commands.Context):
+    """Toggle MusicLinker on/off for this server."""
+    # ... (your existing toggle logic here)
 
-    @musiclinker.command(name="channel")
-    async def ml_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
-        # ... (same)
-        pass
 
-    @musiclinker.command(name="react")
-    async def ml_react(self, ctx: commands.Context):
-        # ... (same)
-        pass
+@musiclinker.command(name="channel")
+async def ml_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    """Set channel restriction (or all channels if omitted)."""
+    # ... (your existing channel logic here)
 
-    @musiclinker.command(name="thumbnail", aliases=["thumb"])
-    async def ml_thumbnail(self, ctx: commands.Context):
-        # ... (same)
-        pass
 
-    @musiclinker.command(name="maxlinks", aliases=["limit"])
-    async def ml_maxlinks(self, ctx: commands.Context, limit: int):
-        # ... (same)
-        pass
+@musiclinker.command(name="react", aliases=["reactions"])
+async def ml_react(self, ctx: commands.Context):
+    """Toggle between reaction mode and auto-reply mode."""
+    # ... (your existing react logic here)
 
-    @commands.is_owner()
-    @musiclinker.command(name="spotifyapi")
-    async def ml_spotifyapi(self, ctx: commands.Context, client_id: str, client_secret: str):
-        # ... (same)
-        pass
 
-    @commands.is_owner()
-    @musiclinker.command(name="clearapi")
-    async def ml_clearapi(self, ctx: commands.Context):
+@musiclinker.command(name="thumbnail", aliases=["thumb", "thumbs"])
+async def ml_thumbnail(self, ctx: commands.Context):
+    """Toggle showing album/video thumbnails."""
+    # ... (your existing thumbnail logic here)
+
+
+@musiclinker.command(name="maxlinks", aliases=["limit", "max"])
+async def ml_maxlinks(self, ctx: commands.Context, limit: int):
+    """Set maximum number of embeds per responded message (1–10)."""
+    limit = max(1, min(10, limit))  # simple clamp example
+    await self.config.guild(ctx.guild).max_links_per_message.set(limit)
+    await ctx.send(f"Max links per message set to **{limit}**.")
+
+
+@commands.is_owner()
+@musiclinker.command(name="spotifyapi")
+async def ml_spotifyapi(self, ctx: commands.Context, client_id: str, client_secret: str):
+    """Set Spotify API credentials (owner only)."""
+    # ... (your existing spotifyapi logic here)
+
+
+@commands.is_owner()
+@musiclinker.command(name="clearapi")
+async def ml_clearapi(self, ctx: commands.Context):
         # ... (same)
         pass
 
