@@ -424,24 +424,24 @@ class PixelArt(commands.Cog):
         """
         image_url = await self.find_image_url(ctx, url)
         if not image_url:
-            # Red-style embed help when no image is provided
-            embed = discord.Embed(
-                title="🖼️ Pixel Art Converter",
-                description=(
-                    "Turn any image into retro pixel art!\n"
-                    "Adjust pixel size, choose from many palettes (retro, seasonal, neon, etc.), "
-                    "toggle grayscale, preview live, and save your favorite result.\n\n"
-                    "**How to use:**\n"
-                    "• **Attach** an image to your command message\n"
-                    "• **Paste** a direct image link (png/jpg/gif/etc.)\n"
-                    "• **Reply** to any message containing an image"
-                ),
-                color=await ctx.embed_color(),
+            prefix = ctx.clean_prefix
+            syntax = f"{prefix}pixel [url]"
+            help_footer = (
+                f"Type {prefix}help <command> for more info on a command. "
+                f"You can also type {prefix}help <category> for more info on a category."
             )
-            embed.set_footer(
-                text=f"Prefix: {ctx.clean_prefix} • Example: {ctx.clean_prefix}pixel (with image)"
+
+            msg = (
+                f"Syntax:\n"
+                f"```{syntax}```\n"
+                f"Convert an image to pixel art.\n"
+                f"Provide image by:\n"
+                f"• attaching it\n"
+                f"• pasting direct URL\n"
+                f"• replying to a message with image\n"
+                f"{help_footer}"
             )
-            await ctx.send(embed=embed)
+            await ctx.send(msg)
             return
 
         async with ctx.typing():
