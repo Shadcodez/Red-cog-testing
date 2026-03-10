@@ -1,7 +1,5 @@
-from redbot.core.bot import Red
-from .pixelart import PixelArt
+from .musiclinker import MusicLinker
 
 
-async def setup(bot: Red):
-    cog = pixelart(bot)
-    await bot.add_cog(cog)
+async def setup(bot):
+    await bot.add_cog(MusicLinker(bot))
