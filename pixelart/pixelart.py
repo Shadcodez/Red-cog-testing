@@ -431,7 +431,7 @@ class PixelArt(commands.Cog):
                 f"You can also type {prefix}help <category> for more info on a category."
             )
 
-            msg = (
+            response = (
                 f"Syntax:\n"
                 f"```{syntax}```\n"
                 f"Convert an image to pixel art.\n"
@@ -441,7 +441,7 @@ class PixelArt(commands.Cog):
                 f"• replying to a message with image\n"
                 f"{help_footer}"
             )
-            await ctx.send(msg)
+            await ctx.send(response)
             return
 
         async with ctx.typing():
