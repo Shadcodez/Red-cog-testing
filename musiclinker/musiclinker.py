@@ -67,8 +67,18 @@ class MusicLinker(commands.Cog):
         self._spotify_token_expires: float = 0.0
         self._message_links: OrderedDict = OrderedDict()
 
-        # Register persistent view for setup command buttons
-        self.bot.add_view(self.SetupView(self))
+        # Do NOT call add_view here – moved to async setup method
+
+    async def initialize_views(self):
+        """Called after cog load to register persistent views safely."""
+        try:
+            self.bot.add_view(self.SetupView(self))
+        except Exception as e:
+            print(f"Failed to register persistent SetupView: {e}")
+
+    async def cog_load(self):
+        """Redbot hook – runs after __init__, safe place for async init."""
+        await self.initialize_views()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -78,8 +88,6 @@ class MusicLinker(commands.Cog):
     async def cog_unload(self):
         if self._session and not self._session.closed:
             await self._session.close()
-
-    # ── Spotify token & data fetching ───────────────────────────────────────
 
     async def _get_spotify_token(self) -> str | None:
         client_id = await self.config.spotify_client_id()
@@ -119,7 +127,7 @@ class MusicLinker(commands.Cog):
                 if r.status == 200:
                     return await r.json()
                 if r.status == 401:
-                    self._spotify_token = None  # force re-auth next time
+                    self._spotify_token = None
                 return None
         except Exception:
             return None
@@ -231,8 +239,6 @@ class MusicLinker(commands.Cog):
         self._message_links[message_id] = data
         if len(self._message_links) > self.MAX_TRACKED_MESSAGES:
             self._message_links.popitem(last=False)
-
-    # ── Commands ────────────────────────────────────────────────────────────
 
     @commands.guild_only()
     @commands.group(
@@ -348,7 +354,7 @@ class MusicLinker(commands.Cog):
         await self.config.spotify_client_secret.set("")
         await ctx.send("Spotify API credentials have been **cleared**.")
 
-    # ── Modern setup & search commands ──────────────────────────────────────
+    # ── Setup & Search ──────────────────────────────────────────────────────
 
     class SpotifyApiModal(Modal, title="Set Spotify API Credentials"):
         client_id = TextInput(
@@ -393,25 +399,21 @@ class MusicLinker(commands.Cog):
 
     class SetupView(View):
         def __init__(self, cog):
-            super().__init__(timeout=300)
+            super().__init__(timeout=None)  # persistent = no timeout
             self.cog = cog
 
-        @Button(label="Get Spotify Keys", style=discord.ButtonStyle.url, url="https://developer.spotify.com/dashboard/applications")
+        @Button(label="Get Spotify Keys", custom_id="musiclinker_get_keys", style=discord.ButtonStyle.url, url="https://developer.spotify.com/dashboard/applications")
         async def get_keys(self, interaction: discord.Interaction, button: Button):
-            await interaction.response.send_message(
-                "→ Opened Spotify Developer Dashboard.\n"
-                "Create/copy an app → get Client ID & Secret → use the 'Set Keys' button.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Spotify Developer Dashboard opened.", ephemeral=True)
 
-        @Button(label="Set Spotify API Keys", style=discord.ButtonStyle.blurple)
+        @Button(label="Set Spotify API Keys", custom_id="musiclinker_set_keys", style=discord.ButtonStyle.blurple)
         async def set_keys(self, interaction: discord.Interaction, button: Button):
             if not await self.cog.bot.is_owner(interaction.user):
                 await interaction.response.send_message("Only the bot owner can set API keys.", ephemeral=True)
                 return
             await interaction.response.send_modal(MusicLinker.SpotifyApiModal(self.cog))
 
-        @Button(label="View Settings", style=discord.ButtonStyle.grey)
+        @Button(label="View Settings", custom_id="musiclinker_view_settings", style=discord.ButtonStyle.grey)
         async def view_settings(self, interaction: discord.Interaction, button: Button):
             ctx = await self.cog.bot.get_context(interaction.message)
             ctx.author = interaction.user
@@ -497,8 +499,6 @@ class MusicLinker(commands.Cog):
         )
 
         await ctx.send(embed=embed)
-
-    # ── Listeners ───────────────────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
