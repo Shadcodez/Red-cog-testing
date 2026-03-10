@@ -1,17 +1,15 @@
 import re
 import time
-import asyncio
-import random
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 from urllib.parse import quote, quote_plus
 
 import aiohttp
 import discord
-from discord.ui import Modal, TextInput, View
+from discord.ui import Modal, TextInput, View, Button
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.utils.menus import start_adding_reactions
-from redbot.core.utils.chat_formatting import bold, warning
+from redbot.core.utils.chat_formatting import warning
 
 
 class MusicLinker(commands.Cog):
@@ -19,35 +17,38 @@ class MusicLinker(commands.Cog):
     cross-platform search links (YouTube, Spotify, Tidal, Amazon Music)
     and a Brave Search lyrics link.
 
-    When Spotify API credentials are configured, retrieves full track metadata.
-    Falls back to oEmbed when API is unavailable or credentials missing.
+    When Spotify API credentials are configured, the bot retrieves full
+    track metadata (artist, album, track name) from the Spotify Web API.
+    Without credentials it falls back to the free oEmbed endpoint, which
+    only provides the track name.
     """
 
     SPOTIFY_GREEN = 0x1DB954
     YOUTUBE_RED = 0xFF0000
 
     MAX_TRACKED_MESSAGES = 500
-    USER_COOLDOWN_SEC = 8
 
-    # Rate limiting (conservative defaults)
-    SPOTIFY_RPS = 8
-    YOUTUBE_RPS = 15
-    BACKOFF_BASE = 1.5
-    BACKOFF_JITTER = 0.3
-    MAX_BACKOFF = 45
-    FAILURE_THRESHOLD = 5
+    SPOTIFY_RE = re.compile(
+        r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([a-zA-Z0-9]{22})\S*"
+    )
 
-    SPOTIFY_RE = re.compile(r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([a-zA-Z0-9]{22})\S*")
-    YOUTUBE_RE = re.compile(r"https?://(?:(?:www\.)?youtube\.com/watch\?[^\s]*v=|youtu\.be/|music\.youtube\.com/watch\?[^\s]*v=)([a-zA-Z0-9_-]{11})\S*")
+    YOUTUBE_RE = re.compile(
+        r"https?://(?:(?:www\.)?youtube\.com/watch\?[^\s]*v=|youtu\.be/"
+        r"|music\.youtube\.com/watch\?[^\s]*v=)([a-zA-Z0-9_-]{11})\S*"
+    )
 
     YT_TITLE_NOISE = re.compile(r"(?i)[\(\[\{].*?[\)\]\}]")
-    YT_TITLE_KEYWORDS = re.compile(r"(?i)\b(?:official\s*(?:music\s*)?video|lyric\s*video|official\s*audio|audio|visualizer|performance\s*video|clip\s*officiel|remaster(?:ed)?|hd|hq|4k|mv)\b")
+    YT_TITLE_KEYWORDS = re.compile(
+        r"(?i)\b(?:official\s*(?:music\s*)?video|lyric\s*video|official\s*audio"
+        r"|audio|visualizer|performance\s*video|clip\s*officiel|remaster(?:ed)?|"
+        r"hd|hq|4k|mv)\b"
+    )
+
     YT_ARTIST_TITLE_RE = re.compile(r"^(.+?)\s*[-–—]\s*(.+)$")
 
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=620983015, force_registration=True)
-
         default_guild = {
             "enabled": False,
             "channel_id": 0,
@@ -61,22 +62,12 @@ class MusicLinker(commands.Cog):
         }
         self.config.register_guild(**default_guild)
         self.config.register_global(**default_global)
-
         self._session: aiohttp.ClientSession | None = None
         self._spotify_token: str | None = None
         self._spotify_token_expires: float = 0.0
         self._message_links: OrderedDict = OrderedDict()
-        self._cooldowns: dict = {}
 
-        # Rate limiting
-        self._semaphores = {
-            "api.spotify.com": asyncio.Semaphore(self.SPOTIFY_RPS),
-            "open.spotify.com": asyncio.Semaphore(self.SPOTIFY_RPS),
-            "youtube.com": asyncio.Semaphore(self.YOUTUBE_RPS),
-        }
-        self._last_request = defaultdict(float)
-        self._failure_count = defaultdict(int)
-
+        # Register persistent view for setup command buttons
         self.bot.add_view(self.SetupView(self))
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -88,41 +79,7 @@ class MusicLinker(commands.Cog):
         if self._session and not self._session.closed:
             await self._session.close()
 
-    async def _rate_limited_request(self, method: str, url: str, **kwargs) -> aiohttp.ClientResponse:
-        host = url.split("/")[2]
-        sem = self._semaphores.get(host, self._semaphores["youtube.com"])
-
-        async with sem:
-            now = time.time()
-            elapsed = now - self._last_request[host]
-            min_delay = 1.0 / (self.SPOTIFY_RPS if "spotify" in host else self.YOUTUBE_RPS)
-            if elapsed < min_delay:
-                await asyncio.sleep(min_delay - elapsed + random.uniform(0, 0.1))
-
-            self._last_request[host] = time.time()
-
-            try:
-                resp = await self._session.request(method, url, **kwargs, timeout=10)
-                if resp.status == 429:
-                    retry_after = float(resp.headers.get("Retry-After", 5))
-                    await asyncio.sleep(retry_after + random.uniform(0.2, 1.0))
-                    return await self._rate_limited_request(method, url, **kwargs)
-
-                if resp.status in (500, 502, 503, 504):
-                    self._failure_count[host] += 1
-                    delay = min(self.MAX_BACKOFF, self.BACKOFF_BASE ** self._failure_count[host] + random.uniform(-self.BACKOFF_JITTER, self.BACKOFF_JITTER))
-                    await asyncio.sleep(delay)
-                    if self._failure_count[host] > self.FAILURE_THRESHOLD:
-                        pass  # could add fallback toggle here if desired
-                    raise aiohttp.ClientResponseError(resp.request_info, resp.history, status=resp.status)
-
-                self._failure_count[host] = 0
-                return resp
-            except (aiohttp.ClientError, asyncio.TimeoutError):
-                self._failure_count[host] += 1
-                delay = min(self.MAX_BACKOFF, self.BACKOFF_BASE ** self._failure_count[host])
-                await asyncio.sleep(delay)
-                raise
+    # ── Spotify token & data fetching ───────────────────────────────────────
 
     async def _get_spotify_token(self) -> str | None:
         client_id = await self.config.spotify_client_id()
@@ -139,12 +96,12 @@ class MusicLinker(commands.Cog):
         auth = aiohttp.BasicAuth(client_id, client_secret)
 
         try:
-            async with (await self._rate_limited_request("POST", url, data=data, auth=auth)) as r:
+            async with (await self._get_session()).post(url, data=data, auth=auth, timeout=10) as r:
                 if r.status != 200:
                     return None
                 js = await r.json()
                 self._spotify_token = js.get("access_token")
-                self._spotify_token_expires = now + js.get("expires_in", 3600) - 300
+                self._spotify_token_expires = now + js.get("expires_in", 3600) - 60
                 return self._spotify_token
         except Exception:
             return None
@@ -158,11 +115,11 @@ class MusicLinker(commands.Cog):
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
-            async with (await self._rate_limited_request("GET", url, headers=headers)) as r:
+            async with (await self._get_session()).get(url, headers=headers, timeout=8) as r:
                 if r.status == 200:
                     return await r.json()
                 if r.status == 401:
-                    self._spotify_token = None
+                    self._spotify_token = None  # force re-auth next time
                 return None
         except Exception:
             return None
@@ -170,7 +127,7 @@ class MusicLinker(commands.Cog):
     async def _fetch_spotify_oembed(self, track_id: str) -> dict | None:
         url = f"https://open.spotify.com/oembed?url=spotify:track:{track_id}"
         try:
-            async with (await self._rate_limited_request("GET", url)) as r:
+            async with (await self._get_session()).get(url, timeout=6) as r:
                 if r.status == 200:
                     return await r.json()
                 return None
@@ -180,7 +137,7 @@ class MusicLinker(commands.Cog):
     async def _fetch_youtube_oembed(self, video_id: str) -> dict | None:
         url = f"https://www.youtube.com/oembed?url=https://youtu.be/{video_id}&format=json"
         try:
-            async with (await self._rate_limited_request("GET", url)) as r:
+            async with (await self._get_session()).get(url, timeout=6) as r:
                 if r.status == 200:
                     return await r.json()
                 return None
@@ -275,6 +232,8 @@ class MusicLinker(commands.Cog):
         if len(self._message_links) > self.MAX_TRACKED_MESSAGES:
             self._message_links.popitem(last=False)
 
+    # ── Commands ────────────────────────────────────────────────────────────
+
     @commands.guild_only()
     @commands.group(
         name="musiclinker",
@@ -367,8 +326,9 @@ class MusicLinker(commands.Cog):
         await ctx.send(f"Thumbnails will now be **{status}** in embeds.")
 
     @musiclinker.command(name="maxlinks", aliases=["limit", "max"])
-    async def ml_maxlinks(self, ctx: commands.Context, limit: commands.Range[int, 1, 10]):
+    async def ml_maxlinks(self, ctx: commands.Context, limit: int):
         """Set maximum number of embeds per responded message (1–10)."""
+        limit = max(1, min(10, limit))
         await self.config.guild(ctx.guild).max_links_per_message.set(limit)
         await ctx.send(f"Maximum links per message set to **{limit}**.")
 
@@ -388,7 +348,7 @@ class MusicLinker(commands.Cog):
         await self.config.spotify_client_secret.set("")
         await ctx.send("Spotify API credentials have been **cleared**.")
 
-    # ── Setup & Search ──────────────────────────────────────────────────────
+    # ── Modern setup & search commands ──────────────────────────────────────
 
     class SpotifyApiModal(Modal, title="Set Spotify API Credentials"):
         client_id = TextInput(
@@ -436,22 +396,23 @@ class MusicLinker(commands.Cog):
             super().__init__(timeout=300)
             self.cog = cog
 
-        @discord.ui.button(label="Get Spotify Keys", style=discord.ButtonStyle.url, url="https://developer.spotify.com/dashboard/applications")
-        async def get_keys(self, interaction: discord.Interaction, button: discord.ui.Button):
+        @Button(label="Get Spotify Keys", style=discord.ButtonStyle.url, url="https://developer.spotify.com/dashboard/applications")
+        async def get_keys(self, interaction: discord.Interaction, button: Button):
             await interaction.response.send_message(
-                "Spotify Developer Dashboard opened.\nCreate/copy an app → get Client ID & Secret → use 'Set Keys' button.",
+                "→ Opened Spotify Developer Dashboard.\n"
+                "Create/copy an app → get Client ID & Secret → use the 'Set Keys' button.",
                 ephemeral=True
             )
 
-        @discord.ui.button(label="Set Spotify API Keys", style=discord.ButtonStyle.blurple)
-        async def set_keys(self, interaction: discord.Interaction, button: discord.ui.Button):
+        @Button(label="Set Spotify API Keys", style=discord.ButtonStyle.blurple)
+        async def set_keys(self, interaction: discord.Interaction, button: Button):
             if not await self.cog.bot.is_owner(interaction.user):
                 await interaction.response.send_message("Only the bot owner can set API keys.", ephemeral=True)
                 return
             await interaction.response.send_modal(MusicLinker.SpotifyApiModal(self.cog))
 
-        @discord.ui.button(label="View Settings", style=discord.ButtonStyle.grey)
-        async def view_settings(self, interaction: discord.Interaction, button: discord.ui.Button):
+        @Button(label="View Settings", style=discord.ButtonStyle.grey)
+        async def view_settings(self, interaction: discord.Interaction, button: Button):
             ctx = await self.cog.bot.get_context(interaction.message)
             ctx.author = interaction.user
             ctx.channel = interaction.channel
@@ -464,7 +425,8 @@ class MusicLinker(commands.Cog):
         embed = discord.Embed(
             title="MusicLinker Setup Guide",
             description=(
-                "Converts Spotify/YouTube links to cross-platform searches + lyrics.\n\n"
+                "This bot converts Spotify/YouTube links into cross-platform search links "
+                "and adds lyrics search.\n\n"
                 "**Quick steps:**\n"
                 "1. Get Spotify API keys (optional but recommended)\n"
                 "2. Set them using the button below (owner only)\n"
@@ -511,32 +473,32 @@ class MusicLinker(commands.Cog):
             await ctx.send("Please provide a song title/query.")
             return
 
-        async with ctx.typing():
-            urls = self._build_search_urls(artist.strip(), title.strip())
+        urls = self._build_search_urls(artist.strip(), title.strip())
 
-            embed = discord.Embed(
-                title=f"Search: {title.strip()}",
-                description=f"**Artist:** {artist.strip()}",
-                color=discord.Color.blurple(),
-                timestamp=discord.utils.utcnow(),
-            )
-            embed.add_field(
-                name="Listen on:",
-                value=(
-                    f"[Spotify]({urls['spotify']})\n"
-                    f"[YouTube]({urls['youtube']})\n"
-                    f"[Tidal]({urls['tidal']})\n"
-                    f"[Amazon Music]({urls['amazon']})"
-                ),
-                inline=False,
-            )
-            embed.add_field(
-                name="Lyrics",
-                value=f"[Brave Search Lyrics]({urls['lyrics']})",
-                inline=False,
-            )
+        embed = discord.Embed(
+            title=f"Search: {title.strip()}",
+            description=f"**Artist:** {artist.strip()}",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(
+            name="Listen on:",
+            value=(
+                f"[Spotify]({urls['spotify']})\n"
+                f"[YouTube]({urls['youtube']})\n"
+                f"[Tidal]({urls['tidal']})\n"
+                f"[Amazon Music]({urls['amazon']})"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Lyrics",
+            value=f"[Brave Search Lyrics]({urls['lyrics']})",
+            inline=False,
+        )
 
-            await ctx.send(embed=embed)
+        await ctx.send(embed=embed)
+
+    # ── Listeners ───────────────────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -550,12 +512,6 @@ class MusicLinker(commands.Cog):
         channel_id = await guild_conf.channel_id()
         if channel_id != 0 and message.channel.id != channel_id:
             return
-
-        key = (message.guild.id, message.author.id)
-        now = time.time()
-        if key in self._cooldowns and now - self._cooldowns[key] < self.USER_COOLDOWN_SEC:
-            return
-        self._cooldowns[key] = now
 
         spotify_ids = self.SPOTIFY_RE.findall(message.content)
         youtube_ids = self.YOUTUBE_RE.findall(message.content)
