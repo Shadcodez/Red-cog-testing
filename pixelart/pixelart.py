@@ -78,22 +78,11 @@ PALETTES: Dict[str, Optional[List[tuple[int, int, int]]]] = {
         (0, 0, 0), (255, 0, 102), (0, 255, 102), (0, 102, 255),
         (255, 255, 0), (255, 0, 255), (0, 255, 255), (255, 255, 255),
     ],
-    # Improved Pastel – wider range of soft eggshell / muted tones
     "Pastel": [
-        (240, 234, 214),   # eggshell
-        (250, 235, 215),   # antique white
-        (255, 213, 209),   # pale pink
-        (238, 210, 210),   # misty rose
-        (255, 218, 193),   # soft peach
-        (255, 253, 208),   # cream
-        (255, 245, 200),   # pale buttercup
-        (200, 235, 210),   # soft mint
-        (210, 225, 200),   # pale sage
-        (195, 215, 240),   # powder blue
-        (215, 200, 235),   # soft lavender
-        (225, 205, 230),   # pale lilac
-        (235, 220, 200),   # warm linen
-        (210, 200, 190),   # soft taupe
+        (240, 234, 214), (250, 235, 215), (255, 213, 209), (238, 210, 210),
+        (255, 218, 193), (255, 253, 208), (255, 245, 200), (200, 235, 210),
+        (210, 225, 200), (195, 215, 240), (215, 200, 235), (225, 205, 230),
+        (235, 220, 200), (210, 200, 190),
     ],
     "Autumn": [
         (43, 24, 11), (97, 49, 24), (164, 74, 30), (204, 119, 34),
@@ -103,100 +92,24 @@ PALETTES: Dict[str, Optional[List[tuple[int, int, int]]]] = {
         (0, 22, 51), (0, 49, 83), (0, 84, 119), (0, 131, 143),
         (0, 180, 170), (100, 217, 197), (178, 236, 225), (240, 255, 250),
     ],
-    # ── New palettes ────────────────────────────────────────────────────────
     "Candy Cane": [
-        (255, 255, 255),   # white
-        (255, 240, 245),   # lavender blush
-        (255, 182, 193),   # light pink
-        (255, 105, 120),   # warm pink
-        (220, 20, 60),     # crimson
-        (178, 34, 34),     # firebrick
-        (144, 12, 30),     # deep red
-        (152, 224, 173),   # peppermint green
-        (240, 248, 240),   # honeydew
+        (255, 255, 255), (255, 240, 245), (255, 182, 193), (255, 105, 120),
+        (220, 20, 60), (178, 34, 34), (144, 12, 30), (152, 224, 173),
+        (240, 248, 240),
     ],
     "Halloween": [
-        (0, 0, 0),         # black
-        (45, 45, 45),      # dark gray (shadows)
-        (101, 67, 33),     # dark brown
-        (139, 90, 43),     # medium brown
-        (204, 85, 0),      # burnt orange
-        (255, 103, 0),     # neon orange
-        (255, 204, 0),     # yellow
-        (75, 0, 130),      # deep purple accent
+        (0, 0, 0), (45, 45, 45), (101, 67, 33), (139, 90, 43),
+        (204, 85, 0), (255, 103, 0), (255, 204, 0), (75, 0, 130),
     ],
     "Christmas": [
-        (0, 80, 0),        # dark green
-        (0, 128, 0),       # green
-        (34, 139, 34),     # forest green
-        (80, 180, 80),     # light green
-        (139, 69, 19),     # saddle brown
-        (101, 67, 33),     # dark brown
-        (178, 34, 34),     # firebrick red
-        (220, 20, 60),     # crimson
-        (255, 215, 0),     # gold
-        (255, 245, 200),   # warm cream
-        (255, 255, 255),   # snow white
+        (0, 80, 0), (0, 128, 0), (34, 139, 34), (80, 180, 80),
+        (139, 69, 19), (101, 67, 33), (178, 34, 34), (220, 20, 60),
+        (255, 215, 0), (255, 245, 200), (255, 255, 255),
     ],
     "Cyberpunk": [
-        (10, 10, 18),      # void black
-        (25, 10, 45),      # deep purple-black
-        (50, 20, 70),      # dark violet
-        (75, 0, 130),      # indigo
-        (255, 0, 110),     # neon pink
-        (255, 50, 180),    # hot pink
-        (0, 255, 255),     # electric cyan
-        (0, 180, 255),     # bright blue
-        (0, 110, 255),     # deep neon blue
-        (255, 255, 0),     # highlight yellow
-        (70, 70, 90),      # steel gray
-        (200, 200, 220),   # pale chrome
-    ],
-    # Bonus popular ones (kept from previous version - can be removed if unwanted)
-    "DawnBringer 32": [
-        (0,0,0), (34,32,52), (69,40,60), (102,57,49), (138,72,50),
-        (143,86,59), (149,102,74), (160,124,89), (172,146,112), (185,173,140),
-        (202,191,163), (224,210,183), (249,233,204), (38,58,41), (57,85,61),
-        (80,119,85), (108,162,115), (141,211,150), (180,255,192), (48,96,130),
-        (69,137,186), (89,178,242), (129,221,255), (35,35,85), (68,68,170),
-        (102,102,255), (140,140,255), (180,180,255), (255,0,0), (255,120,0),
-        (255,200,0), (255,255,0),
-    ],
-    "AAP-64": [
-        (0,0,0), (24,24,24), (48,48,48), (72,72,72), (96,96,96), (120,120,120),
-        (144,144,144), (168,168,168), (192,192,192), (216,216,216), (240,240,240),
-        (255,255,255), (109,0,0), (146,0,0), (182,0,0), (219,0,0), (255,0,0),
-        (255,60,60), (255,120,120), (255,180,180), (109,36,0), (146,48,0),
-        (182,60,0), (219,73,0), (255,85,0), (255,119,51), (255,153,102),
-        (255,187,153), (109,73,0), (146,97,0), (182,121,0), (219,146,0),
-        (255,170,0), (255,187,51), (255,204,102), (255,221,153), (109,109,0),
-        (146,146,0), (182,182,0), (219,219,0), (255,255,0), (255,255,60),
-        (255,255,120), (255,255,180), (0,109,0), (0,146,0), (0,182,0),
-        (0,219,0), (0,255,0), (60,255,60), (120,255,120), (180,255,180),
-        (0,109,109), (0,146,146), (0,182,182), (0,219,219), (0,255,255),
-        (60,255,255), (120,255,255), (180,255,255), (0,0,109), (0,0,146),
-        (0,0,182), (0,0,219), (0,0,255), (60,60,255), (120,120,255),
-        (180,180,255),
-    ],
-    "NES": [
-        (124,124,124), (0,0,252), (0,0,188), (68,40,188), (148,0,132),
-        (168,0,32), (168,16,0), (136,20,0), (80,48,0), (0,120,0),
-        (0,104,0), (0,88,0), (0,64,88), (0,0,0), (0,0,0), (0,0,0),
-        (188,188,188), (0,120,248), (0,88,248), (104,68,252), (216,0,204),
-        (228,0,88), (248,56,0), (228,92,16), (172,124,0), (0,184,0),
-        (0,168,0), (0,168,68), (0,136,136), (0,0,0), (0,0,0), (0,0,0),
-        (252,252,252), (60,188,252), (88,216,252), (152,120,248), (248,88,248),
-        (248,120,88), (252,160,68), (248,184,0), (216,248,0), (60,248,60),
-        (88,252,152), (0,232,216), (60,216,252), (0,0,0), (0,0,0), (0,0,0),
-        (252,252,252), (164,228,252), (184,248,252), (216,216,252), (248,184,248),
-        (248,216,184), (252,228,168), (252,248,120), (248,252,120), (184,252,184),
-        (216,252,216), (60,248,252), (0,0,0), (0,0,0), (0,0,0),
-    ],
-    "EGA": [
-        (0,0,0), (0,0,170), (0,170,0), (0,170,170),
-        (170,0,0), (170,0,170), (170,85,0), (170,170,170),
-        (85,85,85), (85,85,255), (85,255,85), (85,255,255),
-        (255,85,85), (255,85,255), (255,255,85), (255,255,255),
+        (10, 10, 18), (25, 10, 45), (50, 20, 70), (75, 0, 130),
+        (255, 0, 110), (255, 50, 180), (0, 255, 255), (0, 180, 255),
+        (0, 110, 255), (255, 255, 0), (70, 70, 90), (200, 200, 220),
     ],
 }
 
@@ -219,10 +132,6 @@ PALETTE_DESCRIPTIONS: Dict[str, str] = {
     "Halloween": "Neon orange, brown, yellow & black",
     "Christmas": "Festive greens, reds & gold",
     "Cyberpunk": "Neon pink, cyan & dark violet",
-    "DawnBringer 32": "High-quality 32-colour master palette for pixel art",
-    "AAP-64": "Modern 64-colour versatile pixel art palette",
-    "NES": "Approximate Famicom/NES NTSC palette",
-    "EGA": "16-colour IBM PC EGA mode",
 }
 
 # ============================================================================
@@ -274,7 +183,7 @@ def image_to_file(img: Image.Image, filename: str = "pixelart.png") -> discord.F
 
 
 # ============================================================================
-# UI
+# UI Components
 # ============================================================================
 
 
@@ -300,7 +209,7 @@ class PaletteSelect(discord.ui.Select):
         view: PixelArtView = self.view
         view.palette_name = self.values[0]
         for opt in self.options:
-            opt.default = (opt.label == self.values[0])
+            opt.default = opt.label == self.values[0]
         await view.refresh(interaction)
 
 
@@ -506,30 +415,50 @@ class PixelArt(commands.Cog):
     @commands.max_concurrency(4, commands.BucketType.guild)
     async def pixel(self, ctx: commands.Context, *, url: Optional[str] = None):
         """
-        Convert an image to pixel art.
+        Convert an image to pixel art with interactive controls.
 
-        Provide image by:
-        • attaching it
-        • pasting direct URL
-        • replying to a message with image
+        Provide an image in one of these ways:
+        • Attach it directly to your message
+        • Paste a direct image URL as an argument
+        • Reply to a message that contains an image
         """
         image_url = await self.find_image_url(ctx, url)
         if not image_url:
-            await ctx.send(
-                "No image found.\n"
-                "Attach an image, paste a direct URL, or reply to a message containing one."
+            # Red-style embed help when no image is provided
+            embed = discord.Embed(
+                title="🖼️ Pixel Art Converter",
+                description=(
+                    "Turn any image into retro pixel art!\n"
+                    "Adjust pixel size, choose from many palettes (retro, seasonal, neon, etc.), "
+                    "toggle grayscale, preview live, and save your favorite result.\n\n"
+                    "**How to use:**\n"
+                    "• **Attach** an image to your command message\n"
+                    "• **Paste** a direct image link (png/jpg/gif/etc.)\n"
+                    "• **Reply** to any message containing an image"
+                ),
+                color=await ctx.embed_color(),
             )
+            embed.set_footer(
+                text=f"Prefix: {ctx.clean_prefix} • Example: {ctx.clean_prefix}pixel (with image)"
+            )
+            await ctx.send(embed=embed)
             return
 
         async with ctx.typing():
             img = await self.download_image(image_url)
             if img is None:
-                await ctx.send(
-                    "Failed to download or process the image.\n"
-                    "• Invalid URL?\n"
-                    "• File too large (>8MB)?\n"
-                    "• Not a supported format?"
+                error_embed = discord.Embed(
+                    title="❌ Processing Failed",
+                    description=(
+                        "Couldn't download or open the image.\n\n"
+                        "Common reasons:\n"
+                        "• Invalid or expired URL\n"
+                        "• File larger than 8 MB\n"
+                        "• Not a supported image format (png/jpg/gif/webp/bmp)"
+                    ),
+                    color=discord.Color.red(),
                 )
+                await ctx.send(embed=error_embed)
                 return
 
             view = PixelArtView(ctx, img)
