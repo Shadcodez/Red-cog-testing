@@ -392,42 +392,39 @@ class MusicLinker(commands.Cog):
             )
 
     class SetupView(View):
-        def __init__(self, cog):
-            super().__init__(timeout=None)  # persistent view
-            self.cog = cog
+    def __init__(self, cog):
+        super().__init__(timeout=None)  # persistent
+        self.cog = cog
 
-        @button(
+        # URL button — must be created manually (no decorator)
+        url_button = Button(
             label="Get Spotify Keys",
             style=discord.ButtonStyle.url,
             url="https://developer.spotify.com/dashboard/applications"
         )
-        async def get_keys(self, interaction: discord.Interaction, button: discord.ui.Button):
-            await interaction.response.send_message(
-                "Spotify Developer Dashboard opened in your browser.",
-                ephemeral=True
-            )
+        self.add_item(url_button)
 
-        @button(
-            label="Set Spotify API Keys",
-            custom_id="ml_set_spotify_keys",
-            style=discord.ButtonStyle.blurple
-        )
-        async def set_keys(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if not await self.cog.bot.is_owner(interaction.user):
-                await interaction.response.send_message("Only the bot owner can set API keys.", ephemeral=True)
-                return
-            await interaction.response.send_modal(MusicLinker.SpotifyApiModal(self.cog))
+    @button(
+        label="Set Spotify API Keys",
+        custom_id="ml_set_spotify_keys",
+        style=discord.ButtonStyle.blurple
+    )
+    async def set_keys(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await self.cog.bot.is_owner(interaction.user):
+            await interaction.response.send_message("Only the bot owner can set API keys.", ephemeral=True)
+            return
+        await interaction.response.send_modal(MusicLinker.SpotifyApiModal(self.cog))
 
-        @button(
-            label="View Settings",
-            custom_id="ml_view_settings",
-            style=discord.ButtonStyle.grey
-        )
-        async def view_settings(self, interaction: discord.Interaction, button: discord.ui.Button):
-            ctx = await self.cog.bot.get_context(interaction.message)
-            ctx.author = interaction.user
-            ctx.channel = interaction.channel
-            await self.cog.musiclinker_settings(ctx)
+    @button(
+        label="View Settings",
+        custom_id="ml_view_settings",
+        style=discord.ButtonStyle.grey
+    )
+    async def view_settings(self, interaction: discord.Interaction, button: discord.ui.Button):
+        ctx = await self.cog.bot.get_context(interaction.message)
+        ctx.author = interaction.user
+        ctx.channel = interaction.channel
+        await self.cog.musiclinker_settings(ctx)
 
     @musiclinker.command(name="setup")
     @commands.guild_only()
