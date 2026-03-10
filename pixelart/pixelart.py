@@ -425,23 +425,24 @@ class PixelArt(commands.Cog):
         image_url = await self.find_image_url(ctx, url)
         if not image_url:
             prefix = ctx.clean_prefix
-            syntax = f"{prefix}pixel [url]"
-            help_footer = (
-                f"Type {prefix}help <command> for more info on a command. "
-                f"You can also type {prefix}help <category> for more info on a category."
+            embed = discord.Embed(
+                title=f"{prefix}pixel [url]",
+                description=(
+                    "Convert an image to pixel art.\n\n"
+                    "Provide image by:\n"
+                    "• attaching it\n"
+                    "• pasting direct URL\n"
+                    "• replying to a message with image"
+                ),
+                color=await ctx.embed_color(),
             )
-
-            response = (
-                f"Syntax:\n"
-                f"```{syntax}```\n"
-                f"Convert an image to pixel art.\n"
-                f"Provide image by:\n"
-                f"• attaching it\n"
-                f"• pasting direct URL\n"
-                f"• replying to a message with image\n"
-                f"{help_footer}"
+            embed.set_footer(
+                text=(
+                    f"Type {prefix}help <command> for more info on a command. "
+                    f"You can also type {prefix}help <category> for more info on a category."
+                )
             )
-            await ctx.send(response)
+            await ctx.send(embed=embed)
             return
 
         async with ctx.typing():
