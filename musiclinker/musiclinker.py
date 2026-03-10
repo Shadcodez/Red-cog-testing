@@ -67,18 +67,12 @@ class MusicLinker(commands.Cog):
         self._spotify_token_expires: float = 0.0
         self._message_links: OrderedDict = OrderedDict()
 
-        # Do NOT call add_view here – moved to async setup method
-
-    async def initialize_views(self):
-        """Called after cog load to register persistent views safely."""
+    async def cog_load(self):
+        """Register persistent views after cog is fully loaded."""
         try:
             self.bot.add_view(self.SetupView(self))
         except Exception as e:
-            print(f"Failed to register persistent SetupView: {e}")
-
-    async def cog_load(self):
-        """Redbot hook – runs after __init__, safe place for async init."""
-        await self.initialize_views()
+            print(f"Warning: Failed to register persistent SetupView: {e}")
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -399,21 +393,24 @@ class MusicLinker(commands.Cog):
 
     class SetupView(View):
         def __init__(self, cog):
-            super().__init__(timeout=None)  # persistent = no timeout
+            super().__init__(timeout=None)  # persistent
             self.cog = cog
 
-        @Button(label="Get Spotify Keys", custom_id="musiclinker_get_keys", style=discord.ButtonStyle.url, url="https://developer.spotify.com/dashboard/applications")
+        @Button(label="Get Spotify Keys", style=discord.ButtonStyle.url, url="https://developer.spotify.com/dashboard/applications")
         async def get_keys(self, interaction: discord.Interaction, button: Button):
-            await interaction.response.send_message("Spotify Developer Dashboard opened.", ephemeral=True)
+            await interaction.response.send_message(
+                "Spotify Developer Dashboard opened in your browser.",
+                ephemeral=True
+            )
 
-        @Button(label="Set Spotify API Keys", custom_id="musiclinker_set_keys", style=discord.ButtonStyle.blurple)
+        @Button(label="Set Spotify API Keys", custom_id="ml_set_spotify_keys", style=discord.ButtonStyle.blurple)
         async def set_keys(self, interaction: discord.Interaction, button: Button):
             if not await self.cog.bot.is_owner(interaction.user):
                 await interaction.response.send_message("Only the bot owner can set API keys.", ephemeral=True)
                 return
             await interaction.response.send_modal(MusicLinker.SpotifyApiModal(self.cog))
 
-        @Button(label="View Settings", custom_id="musiclinker_view_settings", style=discord.ButtonStyle.grey)
+        @Button(label="View Settings", custom_id="ml_view_settings", style=discord.ButtonStyle.grey)
         async def view_settings(self, interaction: discord.Interaction, button: Button):
             ctx = await self.cog.bot.get_context(interaction.message)
             ctx.author = interaction.user
