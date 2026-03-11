@@ -280,17 +280,6 @@ class MusicLinker(commands.Cog):
     async def musiclinker(self, ctx: commands.Context):
         """
         MusicLinker settings & configuration.
-
-        Subcommands:
-          channel         Set channel restriction (or all channels if omitted)
-          clearapi        Remove Spotify API credentials (owner only)
-          maxlinks        Set maximum number of embeds per responded message (1–10)
-          react           Toggle between reaction mode and auto-reply mode
-          search          Search for a song and get cross-platform links
-          setup           Start interactive setup wizard
-          spotifysetup    Set Spotify API credentials (owner only)
-          thumbnail       Toggle showing album/video thumbnails
-          toggle          Toggle MusicLinker on/off for this server
         """
         if ctx.invoked_subcommand is None:
             await ctx.send_help(self.musiclinker)
