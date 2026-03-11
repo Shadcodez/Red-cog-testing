@@ -13,16 +13,20 @@ from redbot.core.utils.chat_formatting import warning
 
 
 class MusicLinker(commands.Cog):
-    """Detects Spotify, YouTube (including Music), and Apple Music links.
-    Replies with cross-platform search links + Brave lyrics search.
+    """Detects Spotify and YouTube music links, then replies with
+    cross-platform search links (YouTube, Spotify, Tidal, Amazon Music)
+    and a Brave Search lyrics link.
+
+    When Spotify API credentials are configured, retrieves full track metadata.
+    Falls back to oEmbed when API is unavailable or credentials missing.
     """
 
     SPOTIFY_GREEN = 0x1DB954
     YOUTUBE_RED = 0xFF0000
-    APPLE_MUSIC_BLACK = 0x000000
 
     MAX_TRACKED_MESSAGES = 500
-    ERROR_DELETE_AFTER = 3.0  # seconds
+    PROMPT_DELETE_AFTER = 300.0   # 5 minutes
+    ERROR_DELETE_AFTER = 3.0      # 3 seconds
 
     SPOTIFY_RE = re.compile(
         r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([a-zA-Z0-9]{22})\S*"
@@ -31,10 +35,6 @@ class MusicLinker(commands.Cog):
     YOUTUBE_RE = re.compile(
         r"https?://(?:(?:www\.)?youtube\.com/watch\?[^\s]*v=|youtu\.be/"
         r"|music\.youtube\.com/watch\?[^\s]*v=)([a-zA-Z0-9_-]{11})\S*"
-    )
-
-    APPLE_MUSIC_RE = re.compile(
-        r"https?://music\.apple\.com/(?:[^/]+/)?(?:album|song)/[^/]+/(\d+)(?:\?i=\d+)?"
     )
 
     YT_TITLE_NOISE = re.compile(r"(?i)[\(\[\{].*?[\)\]\}]")
@@ -167,20 +167,6 @@ class MusicLinker(commands.Cog):
             "thumbnail_url": None
         }
 
-    async def _fetch_apple_music_oembed(self, song_id: str) -> dict | None:
-        url = f"https://music.apple.com/us/song/{song_id}"
-        try:
-            async with (await self._get_session()).get(
-                "https://embed.music.apple.com/oembed",
-                params={"url": url},
-                timeout=6
-            ) as r:
-                if r.status == 200:
-                    return await r.json()
-                return None
-        except Exception:
-            return None
-
     async def _fetch_spotify_track(self, track_id: str) -> dict | None:
         data = await self._fetch_spotify_track_api(track_id)
         if data:
@@ -196,12 +182,6 @@ class MusicLinker(commands.Cog):
         oembed = await self._fetch_spotify_oembed(track_id)
         if oembed:
             return {"title": oembed.get("title", "Unknown Track"), "thumbnail": oembed.get("thumbnail_url")}
-        return None
-
-    async def _fetch_apple_music_track(self, song_id: str) -> dict | None:
-        oembed = await self._fetch_apple_music_oembed(song_id)
-        if oembed:
-            return {"title": oembed.get("title", "Apple Music Track"), "thumbnail": oembed.get("thumbnail_url")}
         return None
 
     @staticmethod
@@ -224,7 +204,6 @@ class MusicLinker(commands.Cog):
             "youtube": f"https://www.youtube.com/results?search_query={q}",
             "tidal": f"https://listen.tidal.com/search?q={q}",
             "amazon": f"https://music.amazon.com/search/{q}",
-            "apple_music": f"https://music.apple.com/us/search?term={q}",
             "lyrics": f"https://search.brave.com/search?q={quote(f'{artist} {title} lyrics')}",
         }
 
@@ -246,15 +225,8 @@ class MusicLinker(commands.Cog):
             e.set_thumbnail(url=thumbnail)
         return e
 
-    def _build_apple_music_embed(self, track_info: dict, show_thumb: bool) -> discord.Embed:
-        e = discord.Embed(color=self.APPLE_MUSIC_BLACK)
-        e.title = track_info.get("title", "Apple Music Track")
-        if show_thumb and (thumb := track_info.get("thumbnail")):
-            e.set_thumbnail(url=thumb)
-        return e
-
     async def _build_embeds_for_links(
-        self, spotify_ids: list[str], youtube_ids: list[str], apple_ids: list[str], show_thumb: bool, max_links: int
+        self, spotify_ids: list[str], youtube_ids: list[str], show_thumb: bool, max_links: int
     ) -> list[discord.Embed]:
         embeds = []
 
@@ -276,13 +248,27 @@ class MusicLinker(commands.Cog):
                     )
                 )
 
-        remaining = max_links - len(embeds)
-        for aid in apple_ids[:remaining]:
-            info = await self._fetch_apple_music_track(aid)
-            if info:
-                embeds.append(self._build_apple_music_embed(info, show_thumb))
-
         return embeds
+
+    def _build_fallback_sources_embed(self, artist: str = "Unknown", title: str = "Song") -> discord.Embed:
+        """Embed with all cross-platform search links + lyrics."""
+        urls = self._build_search_urls(artist, title)
+        embed = discord.Embed(
+            title="More Music Sources & Lyrics",
+            color=discord.Color.blurple(),
+            description=f"**{title}** • {artist}"
+        )
+        embed.add_field(
+            name="Listen on",
+            value="\n".join(f"[{k.replace('_',' ').title()}]({v})" for k, v in urls.items() if k != "lyrics"),
+            inline=False
+        )
+        embed.add_field(
+            name="Lyrics",
+            value=f"[Brave Search Lyrics]({urls['lyrics']})",
+            inline=False
+        )
+        return embed
 
     def _track_message(self, message_id: int, data: dict):
         self._message_links[message_id] = data
@@ -381,7 +367,7 @@ class MusicLinker(commands.Cog):
         await self.config.spotify_client_secret.set("")
         await ctx.send("Spotify API credentials have been **cleared**.")
 
-    # ── Setup Wizard ────────────────────────────────────────────────────────
+    # ── Setup & Search ──────────────────────────────────────────────────────
 
     class SetupView(View):
         def __init__(self, cog):
@@ -393,15 +379,15 @@ class MusicLinker(commands.Cog):
             await interaction.response.defer(ephemeral=True)
             await interaction.followup.send(
                 "**MusicLinker Setup Wizard**\n\n"
-                "This wizard will guide you through basic configuration.\n"
-                "You can cancel anytime by ignoring the messages.\n\n"
+                "This wizard will help you configure MusicLinker in a few steps.\n"
+                "You can cancel at any time by ignoring the messages.\n\n"
                 "Step 1: Choose where MusicLinker should listen for music links.\n"
                 "Use the dropdown below.",
                 ephemeral=True
             )
             view = self.cog.ChannelSelectView(self.cog, interaction.user, interaction.channel.id)
             await interaction.followup.send(
-                "Select channel scope:",
+                "Where should MusicLinker work?",
                 view=view,
                 ephemeral=True
             )
@@ -586,44 +572,60 @@ class MusicLinker(commands.Cog):
         embeds = []
         try:
             async with message.channel.typing():
-                embeds = await self._build_embeds_for_links(spotify_ids, youtube_ids, [], show_thumb, max_l)
+                embeds = await self._build_embeds_for_links(spotify_ids, youtube_ids, show_thumb, max_l)
         except Exception as exc:
             print(f"Metadata fetch failed in {message.guild.name}/{message.channel.name}: {exc}")
-            # No warning message anymore — fallback to silent or minimal
-            # If you want a message, uncomment below (ephemeral-like, auto-delete)
-            # await message.reply(warning("Metadata fetch failed."), delete_after=self.ERROR_DELETE_AFTER)
-
-        if not embeds:
-            # Minimal fallback: send search link only (no warning)
-            artist = "Unknown"
-            title = "Song"
-            if youtube_ids:
-                title = "YouTube Music Video"
-            elif spotify_ids:
-                title = "Spotify Track"
-            urls = self._build_search_urls(artist, title)
-            embed = discord.Embed(title=title, color=discord.Color.greyple())
-            embed.add_field(name="Search on:", value="\n".join(f"[{k.title()}]({v})" for k,v in urls.items()), inline=False)
-            await message.reply(embed=embed, mention_author=False)
-            return
 
         if use_react:
             try:
-                msg = await message.reply("React ♻️ to see music links (expires in 5 min)", mention_author=False)
+                msg = await message.reply(
+                    "React ♻️ for more music sources and lyrics (expires in 5 min)",
+                    mention_author=False,
+                    delete_after=self.PROMPT_DELETE_AFTER
+                )
                 await start_adding_reactions(msg, ["♻️"])
+                fallback_embed = self._build_fallback_sources_embed()
                 self._track_message(msg.id, {
-                    "embeds": embeds,
+                    "embeds": embeds if embeds else [fallback_embed],
                     "author": message.author.id,
                     "expires": time.time() + 300,
                 })
             except discord.HTTPException:
                 pass
         else:
-            for e in embeds:
-                try:
-                    await message.reply(embed=e, mention_author=False)
-                except discord.HTTPException:
-                    pass
+            if embeds:
+                for e in embeds:
+                    try:
+                        await message.reply(embed=e, mention_author=False)
+                    except discord.HTTPException:
+                        pass
+            else:
+                # Minimal fallback embed when no rich data
+                fallback_embed = self._build_fallback_sources_embed()
+                await message.reply(embed=fallback_embed, mention_author=False)
+
+    def _build_fallback_sources_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="More Music Sources & Lyrics",
+            color=discord.Color.blurple(),
+            description="Couldn't fetch full metadata — here are search links:"
+        )
+        # Generic search (can be improved with parsed title later)
+        q = quote("song")
+        urls = {
+            "spotify": f"https://open.spotify.com/search/{q}",
+            "youtube": f"https://www.youtube.com/results?search_query={q}",
+            "tidal": f"https://listen.tidal.com/search?q={q}",
+            "amazon": f"https://music.amazon.com/search/{q}",
+            "lyrics": f"https://search.brave.com/search?q={quote('song lyrics')}",
+        }
+        embed.add_field(
+            name="Listen on",
+            value="\n".join(f"[{k.title()}]({v})" for k,v in urls.items() if k != "lyrics"),
+            inline=False
+        )
+        embed.add_field(name="Lyrics", value=f"[Brave Search]({urls['lyrics']})", inline=False)
+        return embed
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
