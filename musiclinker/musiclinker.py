@@ -25,7 +25,7 @@ class MusicLinker(commands.Cog):
     YOUTUBE_RED = 0xFF0000
 
     MAX_TRACKED_MESSAGES = 500
-    PROMPT_DELETE_AFTER = 300.0  # 5 minutes
+    PROMPT_DELETE_AFTER = 300.0
 
     SPOTIFY_RE = re.compile(
         r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([a-zA-Z0-9]{22})\S*"
@@ -158,13 +158,37 @@ class MusicLinker(commands.Cog):
 
         oembed = await self._fetch_spotify_oembed(track_id)
         if oembed:
-            return {"title": oembed.get("title", "Unknown Track"), "thumbnail": oembed.get("thumbnail_url")}
+            return {"title": oembed.get("title", "Unknown Track"), "artist": "Unknown", "album": "Unknown", "thumbnail": oembed.get("thumbnail_url")}
         return None
+
+    async def _fetch_page_metadata(self, url: str) -> dict | None:
+        try:
+            async with (await self._get_session()).get(url, timeout=6) as r:
+                if r.status == 200:
+                    html = await r.text()
+                    title_match = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
+                    if title_match:
+                        page_title = title_match.group(1).strip()
+                        # Parse based on domain
+                        if "spotify.com" in url:
+                            m = re.match(r"^(?P<title>.*?)\ - (?P<artist>.*?)\ | (?P<album>.*?)\ | Spotify$", page_title)
+                            if m:
+                                d = m.groupdict()
+                                d["thumbnail"] = None
+                                return d
+                        elif "youtube.com" in url or "youtu.be" in url:
+                            artist, title = self._parse_yt_artist_and_song(page_title, "YouTube")
+                            return {"artist": artist, "title": self._clean_yt_title(title), "album": "Unknown", "thumbnail": None}
+                    return None
+        except Exception as e:
+            print(f"Page metadata fetch failed for {url}: {e}")
+            return None
 
     @staticmethod
     def _clean_yt_title(title: str) -> str:
         title = MusicLinker.YT_TITLE_NOISE.sub("", title)
         title = MusicLinker.YT_TITLE_KEYWORDS.sub("", title)
+        title = re.sub(r" - YouTube$", "", title)
         return title.strip() or "YouTube Video"
 
     @staticmethod
@@ -370,7 +394,7 @@ class MusicLinker(commands.Cog):
 
         async def interaction_check(self, interaction: discord.Interaction) -> bool:
             if interaction.user != self.user:
-                await interaction.response.send_message("This setup is for someone else.", ephemeral=True, delete_after=self.cog.ERROR_DELETE_AFTER)
+                await interaction.response.send_message("This setup is for someone else.", ephemeral=True)
                 return False
             return True
 
@@ -503,6 +527,29 @@ class MusicLinker(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    def _extract_info_from_embeds(self, embeds: list[discord.Embed]) -> tuple[str, str, str]:
+        artist = "Unknown"
+        title = "Song"
+        album = "Unknown"
+        if embeds:
+            first_embed = embeds[0]
+            title = first_embed.title or "Song"
+            if first_embed.description:
+                artist_match = re.search(r"\**Artist:\** (.*)", first_embed.description)
+                album_match = re.search(r"\**Album:\** (.*)", first_embed.description)
+                channel_match = re.search(r"\**Channel:\** (.*)", first_embed.description)
+                if artist_match:
+                    artist = artist_match.group(1).strip()
+                if album_match:
+                    album = album_match.group(1).strip()
+                if channel_match:
+                    artist = channel_match.group(1).strip()
+            if first_embed.color == self.YOUTUBE_RED:
+                artist_from_title, title_from_title = self._parse_yt_artist_and_song(title, artist)
+                title = self._clean_yt_title(title_from_title)
+                artist = artist_from_title
+        return artist, title, album
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild or message.webhook_id:
@@ -527,23 +574,13 @@ class MusicLinker(commands.Cog):
         max_l = await guild_conf.max_links_per_message()
 
         embeds = []
-        artist = "Unknown"
-        title = "Song"
         try:
             async with message.channel.typing():
                 embeds = await self._build_embeds_for_links(spotify_ids, youtube_ids, show_thumb, max_l)
-            # Extract artist/title from first embed if available
-            if embeds:
-                first_embed = embeds[0]
-                title = first_embed.title or "Song"
-                if first_embed.description:
-                    desc_lines = first_embed.description.split("\n")
-                    for line in desc_lines:
-                        if line.startswith("**Artist:** "):
-                            artist = line.replace("**Artist:** ", "")
-                            break
         except Exception as exc:
             print(f"Metadata fetch failed in {message.guild.name}/{message.channel.name}: {exc}")
+
+        artist, title, album = self._extract_info_from_embeds(embeds)
 
         sources_embed = self._build_sources_embed(artist, title)
 
@@ -556,8 +593,10 @@ class MusicLinker(commands.Cog):
                 )
                 await start_adding_reactions(msg, ["♻️"])
                 self._track_message(msg.id, {
-                    "rich_embeds": embeds,
-                    "sources_embed": sources_embed,
+                    "embeds": embeds,
+                    "artist": artist,
+                    "title": title,
+                    "album": album,
                     "author": message.author.id,
                     "expires": time.time() + 300,
                 })
@@ -573,25 +612,6 @@ class MusicLinker(commands.Cog):
                 await message.reply(embed=sources_embed, mention_author=False)
             except discord.HTTPException:
                 pass
-
-    def _build_sources_embed(self, artist: str, title: str) -> discord.Embed:
-        urls = self._build_search_urls(artist, title)
-        embed = discord.Embed(
-            title=f"Cross-Platform Links for {title}",
-            description=f"By {artist}",
-            color=discord.Color.blurple()
-        )
-        embed.add_field(
-            name="Listen on",
-            value="\n".join(f"[{k.replace('_', ' ').title()}]({v})" for k, v in urls.items() if k != "lyrics"),
-            inline=False
-        )
-        embed.add_field(
-            name="Lyrics",
-            value=f"[Brave Search]({urls['lyrics']})",
-            inline=False
-        )
-        return embed
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
@@ -618,12 +638,15 @@ class MusicLinker(commands.Cog):
 
         try:
             msg = await channel.fetch_message(payload.message_id)
-            await msg.clear_reactions()
+            await msg.delete()  # auto-remove prompt
+
             # Send rich embeds
-            for embed in data["rich_embeds"]:
+            for embed in data["embeds"]:
                 await channel.send(embed=embed)
-            # Send sources embed
-            await channel.send(embed=data["sources_embed"])
+
+            # Send sources embed with correct artist/title
+            sources_embed = self._build_sources_embed(data["artist"], data["title"])
+            await channel.send(embed=sources_embed)
         except discord.HTTPException:
             pass
         finally:
