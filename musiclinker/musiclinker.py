@@ -82,8 +82,6 @@ class MusicLinker(commands.Cog):
         if self._session and not self._session.closed:
             await self._session.close()
 
-    # ── Spotify token & fetch methods ──────────────────────────────────────
-
     async def _get_spotify_token(self) -> str | None:
         client_id = await self.config.spotify_client_id()
         client_secret = await self.config.spotify_client_secret()
@@ -310,7 +308,7 @@ class MusicLinker(commands.Cog):
         if len(self._message_links) > self.MAX_TRACKED_MESSAGES:
             self._message_links.popitem(last=False)
 
-    # ── Main command group ── MUST BE DEFINED BEFORE subcommands!
+    # ── Main command group ── MUST COME BEFORE subcommands
     @commands.guild_only()
     @commands.group(name="musiclinker", aliases=["ml"], invoke_without_command=True)
     @commands.admin_or_permissions(manage_guild=True)
@@ -401,12 +399,12 @@ class MusicLinker(commands.Cog):
         await self.config.spotify_client_secret.set("")
         await ctx.send("Spotify API credentials have been **cleared**.")
 
-    @musiclinker.command(name="setup")
+    @musiclinker.command(name="config")
     @commands.guild_only()
     @commands.admin_or_permissions(manage_guild=True)
-    async def ml_setup(self, ctx: commands.Context):
+    async def ml_config(self, ctx: commands.Context):
         embed = discord.Embed(
-            title="MusicLinker Setup Wizard",
+            title="MusicLinker Configuration Wizard",
             description="Configure MusicLinker step by step.\nClick below to start.\n(Cancel by ignoring messages.)",
             color=discord.Color(0x1DB954)
         )
@@ -518,11 +516,11 @@ class MusicLinker(commands.Cog):
             super().__init__(timeout=300)
             self.cog = cog
 
-        @button(label="Start Setup", style=discord.ButtonStyle.green)
+        @button(label="Start Config", style=discord.ButtonStyle.green)
         async def start_setup(self, interaction: discord.Interaction, button: discord.ui.Button):
             await interaction.response.defer(ephemeral=True)
             await interaction.followup.send(
-                "**MusicLinker Setup Wizard**\n\n"
+                "**MusicLinker Configuration Wizard**\n\n"
                 "This wizard will help you configure MusicLinker in a few steps.\n"
                 "You can cancel at any time by ignoring the messages.\n\n"
                 "Step 1: Choose where MusicLinker should listen for music links.\n"
@@ -631,7 +629,7 @@ class MusicLinker(commands.Cog):
                 "Setup complete! 🎉\n\n"
                 "• Use `[p]ml settings` to review/change settings\n"
                 "• Use `[p]ml toggle` to turn on/off later\n"
-                "• Use `[p]ml` for help",
+                "• Use `[p]ml config` for the wizard again",
                 ephemeral=True
             )
 
@@ -642,18 +640,8 @@ class MusicLinker(commands.Cog):
                 "Setup complete!\n\n"
                 "• Config saved, but disabled.\n"
                 "• Enable later with `[p]ml toggle`\n"
-                "• Check `[p]ml settings` anytime",
+                "• Use `[p]ml config` anytime to re-run wizard",
                 ephemeral=True
             )
 
-    @musiclinker.command(name="setup")
-    @commands.guild_only()
-    @commands.admin_or_permissions(manage_guild=True)
-    async def ml_setup(self, ctx: commands.Context):
-        embed = discord.Embed(
-            title="MusicLinker Setup Wizard",
-            description="Configure MusicLinker step by step.\nClick below to start.\n(Cancel by ignoring messages.)",
-            color=discord.Color(0x1DB954)
-        )
-        view = self.SetupView(self)
-        await ctx.send(embed=embed, view=view)
+# End of file
