@@ -17,10 +17,8 @@ class MusicLinker(commands.Cog):
     cross-platform search links (YouTube, Spotify, Tidal, Amazon Music, Apple Music)
     and a Brave Search lyrics link.
 
-    When Spotify API credentials are configured, the bot retrieves full
-    track metadata (artist, album, track name) from the Spotify Web API.
-    Without credentials it falls back to the free oEmbed endpoint, which
-    only provides the track name.
+    When Spotify API credentials are configured, retrieves full track metadata.
+    Falls back to oEmbed when API is unavailable or credentials missing.
     """
 
     SPOTIFY_GREEN = 0x1DB954
@@ -284,15 +282,15 @@ class MusicLinker(commands.Cog):
         MusicLinker settings & configuration.
 
         Subcommands:
-          channel     Set channel restriction (or all channels if omitted)
-          clearapi    Remove Spotify API credentials (owner only)
-          maxlinks    Set maximum number of embeds per responded message (1–10)
-          react       Toggle between reaction mode and auto-reply mode
-          search      Search for a song and get cross-platform links
-          setup       Quick setup guide with interactive buttons
-          spotifysetup Set Spotify API credentials (owner only)
-          thumbnail   Toggle showing album/video thumbnails
-          toggle      Toggle MusicLinker on/off for this server
+          channel         Set channel restriction (or all channels if omitted)
+          clearapi        Remove Spotify API credentials (owner only)
+          maxlinks        Set maximum number of embeds per responded message (1–10)
+          react           Toggle between reaction mode and auto-reply mode
+          search          Search for a song and get cross-platform links
+          setup           Start interactive setup wizard
+          spotifysetup    Set Spotify API credentials (owner only)
+          thumbnail       Toggle showing album/video thumbnails
+          toggle          Toggle MusicLinker on/off for this server
         """
         if ctx.invoked_subcommand is None:
             await ctx.send_help(self.musiclinker)
@@ -371,11 +369,11 @@ class MusicLinker(commands.Cog):
         await ctx.send(f"Maximum links per message set to **{limit}**.")
 
     @commands.is_owner()
-    @musiclinker.command(name="spotifysetup")
+    @musiclinker.command(name="spotifysetup", aliases=["spotifyapi"])
     async def ml_spotifysetup(self, ctx: commands.Context):
         """Set Spotify API credentials (owner only)."""
         modal = self.SpotifyApiModal(self)
-        await ctx.interaction.response.send_modal(modal)
+        await ctx.interaction.response.send_modal(modal) if hasattr(ctx, "interaction") else await ctx.send("Use the modal in the server to set keys securely.")
 
     @commands.is_owner()
     @musiclinker.command(name="clearapi")
@@ -385,48 +383,7 @@ class MusicLinker(commands.Cog):
         await self.config.spotify_client_secret.set("")
         await ctx.send("Spotify API credentials have been **cleared**.")
 
-    # ── Setup & Search ──────────────────────────────────────────────────────
-
-    class SpotifyApiModal(Modal, title="Set Spotify API Credentials"):
-        client_id = TextInput(
-            label="Spotify Client ID",
-            placeholder="Paste your Client ID here...",
-            style=discord.TextStyle.short,
-            required=True,
-            max_length=255,
-        )
-        client_secret = TextInput(
-            label="Spotify Client Secret",
-            placeholder="Paste your Client Secret here...",
-            style=discord.TextStyle.short,
-            required=True,
-            max_length=255,
-        )
-
-        def __init__(self, cog):
-            super().__init__()
-            self.cog = cog
-
-        async def on_submit(self, interaction: discord.Interaction):
-            if not await self.cog.bot.is_owner(interaction.user):
-                await interaction.response.send_message("Only the bot owner can set API keys.", ephemeral=True)
-                return
-
-            cid = self.client_id.value.strip()
-            secret = self.client_secret.value.strip()
-
-            if not cid or not secret:
-                await interaction.response.send_message("Both fields are required.", ephemeral=True)
-                return
-
-            await self.cog.config.spotify_client_id.set(cid)
-            await self.cog.config.spotify_client_secret.set(secret)
-
-            await interaction.response.send_message(
-                "Spotify API credentials updated successfully! 🎵\n"
-                "(Rich metadata for Spotify links should now work.)",
-                ephemeral=True
-            )
+    # ── Interactive Setup Wizard ────────────────────────────────────────────
 
     class SetupView(View):
         def __init__(self, cog):
@@ -545,13 +502,6 @@ class MusicLinker(commands.Cog):
         )
         view = self.SetupView(self)
         await ctx.send(embed=embed, view=view)
-
-    @musiclinker.command(name="spotifysetup")
-    @commands.is_owner()
-    async def ml_spotifysetup(self, ctx: commands.Context):
-        """Set Spotify API credentials (owner only)."""
-        modal = self.SpotifyApiModal(self)
-        await ctx.interaction.response.send_modal(modal)
 
     @musiclinker.command(name="search")
     @commands.guild_only()
