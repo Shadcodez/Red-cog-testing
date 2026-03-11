@@ -13,18 +13,19 @@ from redbot.core.utils.chat_formatting import warning
 
 
 class MusicLinker(commands.Cog):
-    """Detects Spotify and YouTube music links, replies with cross-platform search links
-    (YouTube, Spotify, Tidal, Amazon Music) and Brave lyrics search.
+    """Detects Spotify and YouTube music links, then replies with
+    cross-platform search links (YouTube, Spotify, Tidal, Amazon Music)
+    and a Brave Search lyrics link.
 
-    Supports rich metadata via Spotify API or oEmbed fallback.
+    When Spotify API credentials are configured, retrieves full track metadata.
+    Falls back to oEmbed when API is unavailable or credentials missing.
     """
 
     SPOTIFY_GREEN = 0x1DB954
     YOUTUBE_RED = 0xFF0000
 
     MAX_TRACKED_MESSAGES = 500
-    PROMPT_LIFETIME = 300.0   # 5 minutes
-    ERROR_DELETE_AFTER = 3.0  # 3 seconds
+    PROMPT_DELETE_AFTER = 300.0  # 5 minutes
 
     SPOTIFY_RE = re.compile(
         r"https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([a-zA-Z0-9]{22})\S*"
@@ -138,16 +139,10 @@ class MusicLinker(commands.Cog):
         try:
             async with (await self._get_session()).get(url, timeout=6) as r:
                 if r.status == 200:
-                    data = await r.json()
-                    if data.get("title"):
-                        return data
-        except Exception as e:
-            print(f"YouTube oEmbed failed for {video_id}: {e}")
-        return {
-            "title": "YouTube Music Video",
-            "author_name": "YouTube Music",
-            "thumbnail_url": None
-        }
+                    return await r.json()
+                return None
+        except Exception:
+            return None
 
     async def _fetch_spotify_track(self, track_id: str) -> dict | None:
         data = await self._fetch_spotify_track_api(track_id)
@@ -179,7 +174,7 @@ class MusicLinker(commands.Cog):
             return match.group(1).strip(), match.group(2).strip()
         return channel_name.strip() or "Unknown", raw_title.strip()
 
-    def _build_search_urls(self, artist: str = "Unknown", title: str = "Song") -> dict:
+    def _build_search_urls(self, artist: str, title: str) -> dict:
         q = quote(f"{artist} {title}".strip())
         return {
             "spotify": f"https://open.spotify.com/search/{q}",
@@ -232,40 +227,237 @@ class MusicLinker(commands.Cog):
 
         return embeds
 
-    def _build_sources_embed(self, artist: str = "Unknown", title: str = "Song") -> discord.Embed:
-        """Clean embed with clickable links to all platforms + lyrics."""
-        urls = self._build_search_urls(artist, title)
-        embed = discord.Embed(
-            title=f"{title} • {artist}",
-            description="More ways to listen + lyrics search",
-            color=discord.Color.blurple()
-        )
-        embed.add_field(
-            name="Listen on",
-            value="\n".join(f"[{k.replace('_', ' ').title()}]({v})" for k, v in urls.items() if k != "lyrics"),
-            inline=False
-        )
-        embed.add_field(
-            name="Lyrics",
-            value=f"[Brave Search Lyrics]({urls['lyrics']})",
-            inline=False
-        )
-        embed.set_footer(text="Click any link to open")
-        return embed
-
     def _track_message(self, message_id: int, data: dict):
         self._message_links[message_id] = data
         if len(self._message_links) > self.MAX_TRACKED_MESSAGES:
             self._message_links.popitem(last=False)
 
     @commands.guild_only()
-    @commands.group(name="musiclinker", aliases=["ml"], invoke_without_command=True)
+    @commands.group(
+        name="musiclinker",
+        aliases=["ml"],
+        invoke_without_command=True,
+    )
     @commands.admin_or_permissions(manage_guild=True)
     async def musiclinker(self, ctx: commands.Context):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(self.musiclinker)
 
-    # ... (all other commands unchanged: settings, toggle, channel, react, thumbnail, maxlinks, spotifyapi, clearapi)
+    @musiclinker.command(name="settings")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def musiclinker_settings(self, ctx: commands.Context):
+        guild_conf = self.config.guild(ctx.guild)
+        enabled = await guild_conf.enabled()
+        thumb = await guild_conf.show_thumbnail()
+        limit = await guild_conf.max_links_per_message()
+        channel_id = await guild_conf.channel_id()
+        use_reactions = await guild_conf.use_reactions()
+
+        has_api = bool(await self.config.spotify_client_id())
+
+        if channel_id == 0:
+            channel_display = "All Channels"
+        else:
+            channel = ctx.guild.get_channel(channel_id)
+            channel_display = channel.mention if channel else f"Unknown ({channel_id})"
+
+        embed = discord.Embed(title="MusicLinker Settings", color=discord.Color.blurple())
+        embed.add_field(name="Enabled", value="✅ Yes" if enabled else "❌ No", inline=True)
+        embed.add_field(name="Channel", value=channel_display, inline=True)
+        embed.add_field(name="React Mode", value="✅ On" if use_reactions else "❌ Off", inline=True)
+        embed.add_field(name="Thumbnails", value="✅ Yes" if thumb else "❌ No", inline=True)
+        embed.add_field(name="Max links / message", value=str(limit), inline=True)
+        embed.add_field(name="Spotify API", value="✅ Configured" if has_api else "❌ Not set", inline=True)
+
+        await ctx.send(embed=embed)
+
+    @musiclinker.command(name="toggle")
+    async def ml_toggle(self, ctx: commands.Context):
+        enabled = await self.config.guild(ctx.guild).enabled()
+        new = not enabled
+        await self.config.guild(ctx.guild).enabled.set(new)
+        status = "enabled" if new else "disabled"
+        await ctx.send(f"MusicLinker is now **{status}** in this server.")
+
+    @musiclinker.command(name="channel")
+    async def ml_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        if channel is None:
+            await self.config.guild(ctx.guild).channel_id.set(0)
+            await ctx.send("MusicLinker will now work in **all channels**.")
+        else:
+            await self.config.guild(ctx.guild).channel_id.set(channel.id)
+            await ctx.send(f"MusicLinker is now restricted to {channel.mention}.")
+
+    @musiclinker.command(name="react", aliases=["reactions"])
+    async def ml_react(self, ctx: commands.Context):
+        current = await self.config.guild(ctx.guild).use_reactions()
+        new = not current
+        await self.config.guild(ctx.guild).use_reactions.set(new)
+        mode = "reaction buttons" if new else "auto-embed replies"
+        await ctx.send(f"MusicLinker will now use **{mode}**.")
+
+    @musiclinker.command(name="thumbnail", aliases=["thumb", "thumbs"])
+    async def ml_thumbnail(self, ctx: commands.Context):
+        current = await self.config.guild(ctx.guild).show_thumbnail()
+        new = not current
+        await self.config.guild(ctx.guild).show_thumbnail.set(new)
+        status = "shown" if new else "hidden"
+        await ctx.send(f"Thumbnails will now be **{status}** in embeds.")
+
+    @musiclinker.command(name="maxlinks", aliases=["limit", "max"])
+    async def ml_maxlinks(self, ctx: commands.Context, limit: int):
+        limit = max(1, min(10, limit))
+        await self.config.guild(ctx.guild).max_links_per_message.set(limit)
+        await ctx.send(f"Maximum links per message set to **{limit}**.")
+
+    @commands.is_owner()
+    @musiclinker.command(name="spotifyapi")
+    async def ml_spotifyapi(self, ctx: commands.Context, client_id: str, client_secret: str):
+        await self.config.spotify_client_id.set(client_id.strip())
+        await self.config.spotify_client_secret.set(client_secret.strip())
+        await ctx.send("Spotify API credentials have been **updated**.")
+
+    @commands.is_owner()
+    @musiclinker.command(name="clearapi")
+    async def ml_clearapi(self, ctx: commands.Context):
+        await self.config.spotify_client_id.set("")
+        await self.config.spotify_client_secret.set("")
+        await ctx.send("Spotify API credentials have been **cleared**.")
+
+    # ── Setup ───────────────────────────────────────────────────────────────
+
+    class SetupView(View):
+        def __init__(self, cog):
+            super().__init__(timeout=300)
+            self.cog = cog
+
+        @button(label="Start Setup", style=discord.ButtonStyle.green)
+        async def start_setup(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send(
+                "**MusicLinker Setup Wizard**\n\n"
+                "This wizard will help you configure MusicLinker in a few steps.\n"
+                "You can cancel at any time by ignoring the messages.\n\n"
+                "Step 1: Choose where MusicLinker should listen for music links.\n"
+                "Use the dropdown below.",
+                ephemeral=True
+            )
+            view = self.cog.ChannelSelectView(self.cog, interaction.user, interaction.channel.id)
+            await interaction.followup.send(
+                "Where should MusicLinker work?",
+                view=view,
+                ephemeral=True
+            )
+
+    class ChannelSelectView(View):
+        def __init__(self, cog, user, current_channel_id):
+            super().__init__(timeout=300)
+            self.cog = cog
+            self.user = user
+
+            options = [
+                discord.SelectOption(label="Entire Server (All Channels)", value="0", description="Listen in every channel"),
+                discord.SelectOption(label="This Channel Only", value=str(current_channel_id), description="Only respond here")
+            ]
+            self.select = Select(
+                placeholder="Select where MusicLinker should work...",
+                options=options,
+                min_values=1,
+                max_values=1
+            )
+            self.select.callback = self.select_callback
+            self.add_item(self.select)
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            if interaction.user != self.user:
+                await interaction.response.send_message("This setup is for someone else.", ephemeral=True, delete_after=self.cog.ERROR_DELETE_AFTER)
+                return False
+            return True
+
+        async def select_callback(self, interaction: discord.Interaction):
+            channel_id = int(self.select.values[0])
+            await self.cog.config.guild(interaction.guild).channel_id.set(channel_id)
+
+            desc = "all channels" if channel_id == 0 else "this channel only"
+            await interaction.response.edit_message(
+                content=f"Done! MusicLinker will now listen in **{desc}**.\n(Change later with `[p]ml channel`.)",
+                view=None
+            )
+
+            view = self.cog.ResponseModeView(self.cog, interaction.user)
+            await interaction.followup.send(
+                "**Next step: Response mode**\n\n"
+                "How should MusicLinker react to music links?\n\n"
+                "- **Auto-Reply (Embeds)**: Sends embed links automatically.\n"
+                "- **Reaction Mode**: Adds ♻️ reaction — click to show links.\n\n"
+                "Choose one:",
+                view=view,
+                ephemeral=True
+            )
+
+    class ResponseModeView(View):
+        def __init__(self, cog, user):
+            super().__init__(timeout=300)
+            self.cog = cog
+            self.user = user
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            return interaction.user == self.user
+
+        @button(label="Auto-Reply (Embeds)", style=discord.ButtonStyle.primary)
+        async def auto_reply(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await self.cog.config.guild(interaction.guild).use_reactions.set(False)
+            await interaction.response.edit_message(content="Set to **auto-reply embeds**.", view=None)
+            await self._continue_to_toggle(interaction)
+
+        @button(label="Reaction Mode (♻️)", style=discord.ButtonStyle.secondary)
+        async def reaction_mode(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await self.cog.config.guild(interaction.guild).use_reactions.set(True)
+            await interaction.response.edit_message(content="Set to **reaction mode**.", view=None)
+            await self._continue_to_toggle(interaction)
+
+        async def _continue_to_toggle(self, interaction: discord.Interaction):
+            view = self.cog.ToggleView(self.cog, interaction.user)
+            await interaction.followup.send(
+                "**Final step: Enable now?**\n\n"
+                "Turn MusicLinker on immediately?\n"
+                "- **Yes**: Start using it right away.\n"
+                "- **No**: Keep disabled (enable later with `[p]ml toggle`).",
+                view=view,
+                ephemeral=True
+            )
+
+    class ToggleView(View):
+        def __init__(self, cog, user):
+            super().__init__(timeout=300)
+            self.cog = cog
+            self.user = user
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            return interaction.user == self.user
+
+        @button(label="Yes - Enable Now", style=discord.ButtonStyle.success)
+        async def turn_on(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await self.cog.config.guild(interaction.guild).enabled.set(True)
+            await interaction.response.edit_message(content="MusicLinker is now **enabled**!", view=None)
+            await interaction.followup.send(
+                "Setup complete! 🎉\n\n"
+                "• Use `[p]ml settings` to review/change settings\n"
+                "• Use `[p]ml toggle` to turn on/off later\n"
+                "• Use `[p]ml` for help",
+                ephemeral=True
+            )
+
+        @button(label="No - Keep Disabled", style=discord.ButtonStyle.danger)
+        async def turn_off(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await interaction.response.edit_message(content="MusicLinker remains **disabled**.", view=None)
+            await interaction.followup.send(
+                "Setup complete!\n\n"
+                "• Config saved, but disabled.\n"
+                "• Enable later with `[p]ml toggle`\n"
+                "• Check `[p]ml settings` anytime",
+                ephemeral=True
+            )
 
     @musiclinker.command(name="setup")
     @commands.guild_only()
@@ -335,27 +527,32 @@ class MusicLinker(commands.Cog):
         max_l = await guild_conf.max_links_per_message()
 
         embeds = []
+        artist = "Unknown"
+        title = "Song"
         try:
             async with message.channel.typing():
                 embeds = await self._build_embeds_for_links(spotify_ids, youtube_ids, show_thumb, max_l)
+            # Extract artist/title from first embed if available
+            if embeds:
+                first_embed = embeds[0]
+                title = first_embed.title or "Song"
+                if first_embed.description:
+                    desc_lines = first_embed.description.split("\n")
+                    for line in desc_lines:
+                        if line.startswith("**Artist:** "):
+                            artist = line.replace("**Artist:** ", "")
+                            break
         except Exception as exc:
             print(f"Metadata fetch failed in {message.guild.name}/{message.channel.name}: {exc}")
-
-        artist = "Unknown Artist"
-        title = "Unknown Track"
-        if youtube_ids:
-            title = "YouTube Music Video"
-        elif spotify_ids:
-            title = "Spotify Track"
 
         sources_embed = self._build_sources_embed(artist, title)
 
         if use_react:
             try:
                 msg = await message.reply(
-                    "**React ♻️ for more music sources and lyrics** (auto-deletes in 5 min)",
+                    "React ♻️ for more music sources and lyrics (expires in 5 min)",
                     mention_author=False,
-                    delete_after=self.PROMPT_LIFETIME
+                    delete_after=self.PROMPT_DELETE_AFTER
                 )
                 await start_adding_reactions(msg, ["♻️"])
                 self._track_message(msg.id, {
@@ -364,10 +561,9 @@ class MusicLinker(commands.Cog):
                     "author": message.author.id,
                     "expires": time.time() + 300,
                 })
-            except discord.HTTPException as e:
-                print(f"Failed to send reaction prompt: {e}")
+            except discord.HTTPException:
+                pass
         else:
-            # Auto-reply mode
             for e in embeds:
                 try:
                     await message.reply(embed=e, mention_author=False)
@@ -377,6 +573,25 @@ class MusicLinker(commands.Cog):
                 await message.reply(embed=sources_embed, mention_author=False)
             except discord.HTTPException:
                 pass
+
+    def _build_sources_embed(self, artist: str, title: str) -> discord.Embed:
+        urls = self._build_search_urls(artist, title)
+        embed = discord.Embed(
+            title=f"Cross-Platform Links for {title}",
+            description=f"By {artist}",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(
+            name="Listen on",
+            value="\n".join(f"[{k.replace('_', ' ').title()}]({v})" for k, v in urls.items() if k != "lyrics"),
+            inline=False
+        )
+        embed.add_field(
+            name="Lyrics",
+            value=f"[Brave Search]({urls['lyrics']})",
+            inline=False
+        )
+        return embed
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
@@ -403,17 +618,14 @@ class MusicLinker(commands.Cog):
 
         try:
             msg = await channel.fetch_message(payload.message_id)
-            await msg.delete()  # remove the prompt once clicked
-
-            # Send rich embeds first (if any)
-            for embed in data.get("rich_embeds", []):
+            await msg.clear_reactions()
+            # Send rich embeds
+            for embed in data["rich_embeds"]:
                 await channel.send(embed=embed)
-
-            # Then send the nice sources & lyrics embed
+            # Send sources embed
             await channel.send(embed=data["sources_embed"])
-
-        except discord.HTTPException as e:
-            print(f"Reaction response failed: {e}")
+        except discord.HTTPException:
+            pass
         finally:
             self._message_links.pop(payload.message_id, None)
 
