@@ -45,8 +45,8 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         search_url = f"https://search.brave.com/search?q={urllib.parse.quote_plus(query)}"
 
         embed = discord.Embed(
-            title="-# 🔍 Brave Search",
-            description=f"# ⤷ '{query}'",
+            title="🔍 Brave Search",
+            description=f"-# ⤷ '{query}'",
             color=0xFF631C,
             url=search_url,
             timestamp=datetime.utcnow(),
