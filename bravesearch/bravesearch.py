@@ -13,7 +13,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
     """Premium Brave Search + AI Answers
     Type `bravesearch` for full help & command list"""
 
-    __author__ = "YourName"
+    __author__ = "shadow using grok"
     __version__ = "2.4.0"
 
     def __init__(self, bot: Red):
@@ -63,7 +63,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         embed = discord.Embed(
             title="🔍 Brave Search",
             description=f"**Query:**\n```{query}```",
-            color=0x00AEEF,
+            color=0xFF631C,
             url=search_url,
             timestamp=datetime.utcnow(),
         )
@@ -104,7 +104,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
 
         embed = discord.Embed(
             title="Brave Web Results",
-            color=0x00AEEF,
+            color=0xFF631C,
             url=f"https://search.brave.com/search?q={urllib.parse.quote_plus(query)}",
         )
         embed.set_footer(text="Powered by Brave")
@@ -311,3 +311,4 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
 
 async def setup(bot: Red):
     await bot.add_cog(BraveSearch(bot))
+
