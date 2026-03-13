@@ -13,8 +13,8 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
     """Brave Search + AI Answers integration
     Type `bravesearch` for help, `bravesearch <query>` to search"""
 
-    __author__ = "YourName"
-    __version__ = "3.0.0"
+    __author__ = "Shadow with Grok"
+    __version__ = "1.0.0"
 
     def __init__(self, bot: Red):
         self.bot = bot
