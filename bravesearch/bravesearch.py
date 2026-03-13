@@ -10,11 +10,11 @@ from redbot.core.utils.chat_formatting import box
 
 
 class BraveSearch(commands.GroupCog, name="bravesearch"):
-    """Premium Brave Search + AI Answers
-    Type `bravesearch` for full help & command list"""
+    """Brave Search integration with web and AI modes
+    Use `bravesearch <query>` to search"""
 
-    __author__ = "shadow using grok"
-    __version__ = "2.4.0"
+    __author__ = "shadow using Grok"
+    __version__ = "2.5.0"
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -29,37 +29,22 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
     async def red_delete_data_for_user(self, **kwargs):
         pass
 
-    # ── HELP when typing just "bravesearch" ──
+    # ── Root command ──────────────────────────────────────────────────────
     @commands.command(name="bravesearch", aliases=["brave", "b", "search"])
     @commands.cooldown(1, 30, commands.BucketType.user)
     @commands.guild_only()
-    async def bravesearch(self, ctx: commands.Context, *, query: str = None):
-        """Main entry point"""
+    async def bravesearch_root(self, ctx: commands.Context, *, query: str = None):
+        """Search Brave or show help
+
+        Without query → shows native Red help menu for this cog"""
         if query is None:
-            embed = discord.Embed(
-                title="🔍 BraveSearch – Commands",
-                description="`bravesearch your question` to search\nAliases: brave, b, search",
-                color=0x00AEEF,
-                timestamp=datetime.utcnow(),
-            )
-            embed.add_field(
-                name="Available commands",
-                value=(
-                    "`bravesearch <query>` — search Brave\n"
-                    "`bravesearch mode web` / `answers` — toggle mode (admin/owner)\n"
-                    "`bravesearch errorchannel #channel` — set log channel\n"
-                    "`bravesearch status` — show settings\n"
-                    "`[p]setbravekey YOUR_KEY` — set API key (owner only)"
-                ),
-                inline=False
-            )
-            embed.set_footer(text="BraveSearch • Powered by Brave")
-            await ctx.send(embed=embed)
+            await ctx.send_help()
             return
 
         query = query.strip()
         search_url = f"https://search.brave.com/search?q={urllib.parse.quote_plus(query)}"
 
+        # Only embed – fancy, single output
         embed = discord.Embed(
             title="🔍 Brave Search",
             description=f"**Query:**\n```{query}```",
@@ -69,7 +54,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         )
         embed.set_thumbnail(url="https://brave.com/static-assets/images/brave-logo.png")
         embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.display_avatar.url)
-        embed.set_footer(text="Real-time • Independent • Brave")
+        embed.set_footer(text="Real-time • Independent index • Powered by Brave")
         await ctx.send(embed=embed)
 
         api_key = await self.config.api_key()
@@ -80,48 +65,13 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         mode = guild_data.get("mode", "web")
 
         try:
-            if mode == "web":
-                await self._web_search(ctx, query, api_key)
-            else:
+            if mode == "answers":
                 await self._answers_search(ctx, query, api_key)
+            # web mode → no second embed anymore
         except Exception as e:
             await self._log_error(ctx.guild, f"Query: {query}\nError: {str(e)}")
 
-    # ── WEB SEARCH ────────────────────────────────────────────────────────
-    async def _web_search(self, ctx: commands.Context, query: str, api_key: str):
-        headers = {"X-Subscription-Token": api_key}
-        params = {"q": query, "count": 9, "safesearch": "moderate"}
-
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as session:
-            async with session.get(
-                "https://api.search.brave.com/res/v1/web/search",
-                headers=headers,
-                params=params,
-            ) as r:
-                if r.status != 200:
-                    raise Exception(f"Web API returned {r.status}")
-                data = await r.json()
-
-        embed = discord.Embed(
-            title="Brave Web Results",
-            color=0xFF631C,
-            url=f"https://search.brave.com/search?q={urllib.parse.quote_plus(query)}",
-        )
-        embed.set_footer(text="Powered by Brave")
-
-        for i, res in enumerate(data.get("results", [])[:8], 1):
-            title = res.get("title", "Untitled")
-            url = res.get("url", "#")
-            desc = (res.get("description") or res.get("snippet") or "")[:280]
-            embed.add_field(
-                name=f"{i}. {title}",
-                value=f"{desc}\n[Open]({url})",
-                inline=False
-            )
-
-        await ctx.send(embed=embed)
-
-    # ── ANSWERS SEARCH ────────────────────────────────────────────────────
+    # ── AI Answers mode ───────────────────────────────────────────────────
     async def _answers_search(self, ctx: commands.Context, query: str, api_key: str):
         thinking = await ctx.send("🤔 **Brave AI is thinking...**")
         history = [{"role": "user", "content": query}]
@@ -141,7 +91,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
             await thinking.edit(
                 content=(
                     "⚠️ **Brave AI is enabled but currently unavailable.**\n"
-                    "This usually means the **Answers plan** is not active.\n"
+                    "This usually means the **Answers plan** is not active on your key.\n"
                     "Owner: check `[p]bravesearch status` and Brave dashboard."
                 )
             )
@@ -167,7 +117,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
                 data = await r.json()
                 return data["choices"][0]["message"]["content"].strip()
 
-    # ── Follow-up handling (delete old message → post new one) ───────────
+    # ── Follow-up handling (delete old → send new to avoid 404/10008) ─────
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
@@ -188,10 +138,10 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
             api_key = await self.config.api_key()
             answer = await self._get_ai_answer(history, api_key)
 
-            # Delete old AI message
+            # Delete old message if possible
             try:
-                old_msg = await message.channel.fetch_message(mid)
-                await old_msg.delete()
+                old = await message.channel.fetch_message(mid)
+                await old.delete()
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 pass
 
@@ -203,7 +153,6 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
             await new_msg.add_reaction("❓")
             await new_msg.add_reaction("🗑️")
 
-            # Update conversation tracking
             self.conversations[new_msg.id] = history + [{"role": "assistant", "content": answer}]
             if mid in self.conversations:
                 del self.conversations[mid]
@@ -223,7 +172,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         emoji = str(reaction.emoji)
         try:
             if emoji == "❓":
-                await reaction.message.reply("Reply to continue the conversation!", delete_after=30)
+                await reaction.message.reply("Reply to continue!", delete_after=30)
             elif emoji == "🗑️":
                 if mid in self.conversations:
                     del self.conversations[mid]
@@ -265,9 +214,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         if isinstance(error, commands.CommandOnCooldown):
             await ctx.send(f"⏳ Wait {error.retry_after:.1f}s", delete_after=10)
 
-
-# ── Subcommands ──────────────────────────────────────────────────────────
-
+    # ── Subcommands ───────────────────────────────────────────────────────
     @commands.guild_only()
     @commands.guildowner_or_permissions(administrator=True)
     @commands.command()
@@ -311,4 +258,3 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
 
 async def setup(bot: Red):
     await bot.add_cog(BraveSearch(bot))
-
