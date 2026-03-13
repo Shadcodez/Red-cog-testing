@@ -10,11 +10,11 @@ from redbot.core.utils.chat_formatting import box
 
 
 class BraveSearch(commands.GroupCog, name="bravesearch"):
-    """Brave Search with web results and optional AI answers
-    Type `bravesearch` for native Red help menu (lists all commands)"""
+    """Brave Search + AI Answers
+    Type `bravesearch` alone to see the full native Red help menu with ALL commands."""
 
     __author__ = "YourName"
-    __version__ = "2.7.0"
+    __version__ = "2.8.0"
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -29,30 +29,30 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
     async def red_delete_data_for_user(self, **kwargs):
         pass
 
-    # ── Root command (native Red help when no query) ─────────────────────
+    # ── Root command – triggers native Red help when no query ─────────────
     @commands.command(name="bravesearch", aliases=["brave", "b", "search"])
     @commands.cooldown(1, 30, commands.BucketType.user)
     @commands.guild_only()
     async def bravesearch_root(self, ctx: commands.Context, *, query: str = None):
         """Search Brave or show help
 
-        No query → shows native Red help menu with ALL commands"""
+        No query → native Red help menu (lists every command/subcommand)"""
         if query is None:
-            await ctx.send_help()          # ← Pure native Red help (lists everything)
+            await ctx.send_help()          # Pure native Red help – shows EVERYTHING
             return
 
         query = query.strip()
         search_url = f"https://search.brave.com/search?q={urllib.parse.quote_plus(query)}"
 
-        # Single fancy embed (your requested style)
+        # Premium single embed with Brave lion logo + small query text
         embed = discord.Embed(
             title="🔍 Brave Search",
-            description=f"**Query:**\n```{query}```",
-            color=0xFF631C,                    # Brave orange as requested
+            description=f"-# {query}",               # small gray header as requested
+            color=0xFF631C,                          # Brave orange
             url=search_url,
             timestamp=datetime.utcnow(),
         )
-        embed.set_thumbnail(url="https://brave.com/static-assets/images/brave-logo.png")
+        embed.set_thumbnail(url="https://brave.com/static-assets/images/brave-lion.png")  # Official lion logo
         embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.display_avatar.url)
         embed.set_footer(text="Real-time • Independent index • Powered by Brave")
         await ctx.send(embed=embed)
@@ -70,7 +70,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         except Exception as e:
             await self._log_error(ctx.guild, f"Query: {query}\nError: {str(e)}")
 
-    # ── AI Answers (per-server toggle) ───────────────────────────────────
+    # ── AI Answers ───────────────────────────────────────────────────────
     async def _answers_search(self, ctx: commands.Context, query: str, api_key: str):
         thinking = await ctx.send("🤔 **Brave AI is thinking...**")
         history = [{"role": "user", "content": query}]
@@ -81,7 +81,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
 
             msg = await ctx.send(
                 f">>> **Brave AI Answer**\n\n{answer}\n\n"
-                "*(Reply • ❓ follow-up • 🗑️ clear)*"
+                "*(Reply to continue • ❓ follow-up • 🗑️ clear)*"
             )
             await msg.add_reaction("❓")
             await msg.add_reaction("🗑️")
@@ -110,7 +110,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
                 data = await r.json()
                 return data["choices"][0]["message"]["content"].strip()
 
-    # ── Follow-ups + reactions (same reliable code as before) ─────────────
+    # ── Follow-ups (delete old + post new = zero 404/10008 errors) ────────
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
@@ -130,7 +130,6 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
             api_key = await self.config.api_key()
             answer = await self._get_ai_answer(history, api_key)
 
-            # Delete old message, post fresh one (prevents 10008 errors)
             try:
                 old = await message.channel.fetch_message(mid)
                 await old.delete()
@@ -150,9 +149,56 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         except Exception as e:
             await self._log_error(message.guild, f"Follow-up error: {str(e)}")
 
-    # (Reaction + delete listeners and _log_error are unchanged and clean — omitted here for brevity but identical to previous working version)
+    # ── Reactions & cleanup ───────────────────────────────────────────────
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
+        if user.bot or reaction.message.author != self.bot.user:
+            return
+        mid = reaction.message.id
+        if mid not in self.conversations:
+            return
 
-    # ── Subcommands (ALL now appear in native Red help) ──────────────────
+        emoji = str(reaction.emoji)
+        try:
+            if emoji == "❓":
+                await reaction.message.reply("Reply to continue!", delete_after=30)
+            elif emoji == "🗑️":
+                if mid in self.conversations:
+                    del self.conversations[mid]
+                await reaction.message.reply("🗑️ Conversation cleared.", delete_after=12)
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message):
+        if message.id in self.conversations:
+            del self.conversations[message.id]
+
+    # ── Error logging (suppresses harmless 10008) ─────────────────────────
+    async def _log_error(self, guild: discord.Guild, text: str):
+        if "10008" in text or "Unknown Message" in text:
+            return
+        cid = await self.config.guild(guild).error_channel()
+        if not cid:
+            return
+        channel = guild.get_channel(cid)
+        if not channel:
+            return
+
+        embed = discord.Embed(title="BraveSearch • Issue", color=0xFF5555, timestamp=datetime.utcnow())
+        embed.description = box(text[:1800], lang="text")
+        embed.set_footer(text=f"Guild: {guild.name} ({guild.id})")
+        try:
+            await channel.send(embed=embed)
+        except:
+            pass
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx: commands.Context, error):
+        if isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f"⏳ Wait {error.retry_after:.1f}s", delete_after=10)
+
+    # ── ALL SUBCOMMANDS (appear in native Red help) ───────────────────────
     @commands.guild_only()
     @commands.guildowner_or_permissions(administrator=True)
     @commands.command()
@@ -192,12 +238,12 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         embed.add_field(name="Error Channel", value=ch.mention if ch else "Disabled", inline=True)
         await ctx.send(embed=embed)
 
-    @commands.is_owner()                                 # ← Bot owner only
+    @commands.is_owner()                               # Bot owner only
     @commands.command()
-    async def setkey(self, ctx: commands.Context, *, key: str = None):
+    async def setbravekey(self, ctx: commands.Context, *, key: str = None):
         """Set Brave API key (owner only)"""
         if key is None:
-            await ctx.send("Use `bravesearch setkey YOUR_KEY`")
+            await ctx.send("Usage: `bravesearch setbravekey YOUR_KEY`")
             return
         await self.config.api_key.set(key.strip())
         await ctx.send("✅ API key saved securely (owner only).")
