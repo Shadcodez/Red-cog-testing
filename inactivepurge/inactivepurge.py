@@ -1,11 +1,10 @@
 # inactivepurge/inactivepurge.py
 
 """
-Inactive Purge Cog for Red Discord Bot
-- Lists members with 0 tracked messages (paginated embed)
-- Supports full purge OR selective purge (multi-select dropdown per page)
-- Uses hybrid command, discord.ui views + Select menus + buttons
-- Safe rate limiting, config cleanup on kick, ownership checks
+Inactive Purge Cog for Red Discord Bot (2026)
+- Paginated list of members with 0 messages
+- Full purge OR selective purge (multi-select dropdown)
+- Safe rate limits, config cleanup, ownership protection
 """
 
 from datetime import datetime, timezone
@@ -73,65 +72,4 @@ class InactivePurge(commands.Cog):
             view.next_.disabled = True
 
         msg = await ctx.send(embed=embed, view=view)
-        view.message = msg
-
-
-class InactiveView(ui.View):
-    def __init__(
-        self,
-        cog: InactivePurge,
-        guild: discord.Guild,
-        inactive: list[discord.Member],
-        author: discord.abc.User,
-    ):
-        super().__init__(timeout=900)  # 15 minutes
-        self.cog = cog
-        self.guild = guild
-        self.inactive = inactive
-        self.author = author
-        self.page = 0
-        self.per_page = 10
-        self.total_pages = (len(inactive) + self.per_page - 1) // self.per_page
-        self.message: discord.Message | None = None
-
-        # Selective mode state
-        self.selective_mode: bool = False
-        self.selected_ids: set[int] = set()  # accumulated selected member IDs
-
-        self._build_ui()
-
-    def _build_ui(self):
-        """Rebuild components based on current mode."""
-        self.clear_items()
-
-        # Page navigation
-        self.prev = ui.Button(
-            emoji="◀️", style=discord.ButtonStyle.blurple, row=0, disabled=self.page == 0
-        )
-        self.next_ = ui.Button(
-            emoji="▶️", style=discord.ButtonStyle.blurple, row=0,
-            disabled=self.page == self.total_pages - 1
-        )
-        self.prev.callback = self.previous_page
-        self.next_.callback = self.next_page
-        self.add_item(self.prev)
-        self.add_item(self.next_)
-
-        # Mode toggle
-        toggle_label = "Switch to Selective" if not self.selective_mode else "Switch to All"
-        self.toggle = ui.Button(
-            label=toggle_label,
-            style=discord.ButtonStyle.green if self.selective_mode else discord.ButtonStyle.grey,
-            row=1
-        )
-        self.toggle.callback = self.toggle_mode
-        self.add_item(self.toggle)
-
-        if self.selective_mode:
-            # Multi-select dropdown for current page
-            current_members = self._get_current_page_members()
-            options = [
-                discord.SelectOption(
-                    label=f"{m.display_name} ({m})",
-                    value=str(m.id),
-                    description=f"Joined {m.joined_at.strftime('%
+        view.message =
