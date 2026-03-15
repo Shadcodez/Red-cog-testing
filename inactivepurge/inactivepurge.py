@@ -1,0 +1,348 @@
+# inactivepurge/inactivepurge.py
+
+"""
+Inactive Purge Cog — Modern Red Discord Bot
+- Lists members with 0 tracked messages (paginated embed)
+- Supports full purge or selective purge (pick which ones to kick)
+- Uses hybrid command, discord.ui views, select menus & buttons
+- Safe rate limiting, config cleanup on kick, ownership checks
+"""
+
+from datetime import datetime, timezone
+import asyncio
+
+import discord
+from discord import ui
+from redbot.core import commands, Config
+from redbot.core.bot import Red
+from redbot.core.commands import Context
+
+
+class InactivePurge(commands.Cog):
+    """List & purge inactive members (0 messages tracked)."""
+
+    def __init__(self, bot: Red):
+        self.bot = bot
+        self.config = Config.get_conf(self, identifier=9876543210, force_registration=True)
+        self.config.register_member(messages=0)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.guild is None or message.author.bot:
+            return
+        try:
+            count = await self.config.member(message.author).messages()
+            await self.config.member(message.author).messages.set(count + 1)
+        except Exception:
+            pass
+
+    @commands.hybrid_command(
+        name="inactive",
+        with_app_command=True,
+        description="List members with 0 messages + purge (full or selective).",
+    )
+    @commands.guild_only()
+    @commands.admin_or_permissions(kick_members=True)
+    async def inactive_command(self, ctx: Context):
+        if ctx.interaction:
+            await ctx.defer(ephemeral=False)
+
+        guild = ctx.guild
+        try:
+            data = await self.config.all_members(guild)
+        except Exception:
+            await ctx.send("❌ Failed to load member data.")
+            return
+
+        inactive = [
+            m for m in guild.members
+            if not m.bot and (data.get(m.id) or {}).get("messages", 0) == 0
+        ]
+
+        if not inactive:
+            await ctx.send("✅ No inactive members found!")
+            return
+
+        inactive.sort(key=lambda m: m.joined_at or datetime(1900, 1, 1, tzinfo=timezone.utc))
+
+        view = InactiveView(self, guild, inactive, ctx.author)
+        embed = view.get_embed(0)
+
+        if view.total_pages <= 1:
+            view.prev.disabled = True
+            view.next_.disabled = True
+
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
+
+
+class InactiveView(ui.View):
+    def __init__(
+        self,
+        cog: InactivePurge,
+        guild: discord.Guild,
+        inactive: list[discord.Member],
+        author: discord.abc.User,
+    ):
+        super().__init__(timeout=900)  # 15 min
+        self.cog = cog
+        self.guild = guild
+        self.inactive = inactive
+        self.author = author
+        self.page = 0
+        self.per_page = 10
+        self.total_pages = (len(inactive) + self.per_page - 1) // self.per_page
+        self.message: discord.Message | None = None
+
+        # Selective mode state
+        self.selective_mode = False
+        self.selected_ids: set[int] = set()  # accumulated selected member IDs
+
+        self._build_ui()
+
+    def _build_ui(self):
+        """Rebuild components based on current mode."""
+        self.clear_items()
+
+        # Page navigation
+        self.prev = ui.Button(
+            emoji="◀️", style=discord.ButtonStyle.blurple, row=0, disabled=self.page == 0
+        )
+        self.next_ = ui.Button(
+            emoji="▶️", style=discord.ButtonStyle.blurple, row=0,
+            disabled=self.page == self.total_pages - 1
+        )
+        self.prev.callback = self.previous_page
+        self.next_.callback = self.next_page
+        self.add_item(self.prev)
+        self.add_item(self.next_)
+
+        # Mode toggle
+        toggle_label = "Switch to Selective" if not self.selective_mode else "Switch to All"
+        self.toggle = ui.Button(
+            label=toggle_label, style=discord.ButtonStyle.green if self.selective_mode else discord.ButtonStyle.grey,
+            row=1
+        )
+        self.toggle.callback = self.toggle_mode
+        self.add_item(self.toggle)
+
+        if self.selective_mode:
+            # Multi-select for current page
+            current_members = self._get_current_page_members()
+            options = [
+                discord.SelectOption(
+                    label=f"{m.display_name} ({m})",
+                    value=str(m.id),
+                    description=f"Joined {m.joined_at.strftime('%Y-%m-%d') if m.joined_at else 'Unknown'}"
+                )
+                for m in current_members
+            ]
+
+            self.select_menu = ui.StringSelect(
+                placeholder="Select members to kick (multi-select)",
+                min_values=0,
+                max_values=len(options),
+                options=options,
+                row=2
+            )
+            self.select_menu.callback = self.on_select_members
+            self.add_item(self.select_menu)
+
+            # Confirm selected button
+            self.confirm_selected = ui.Button(
+                label="Confirm Selected Kicks",
+                style=discord.ButtonStyle.red,
+                emoji="🗑️",
+                row=3,
+                disabled=len(self.selected_ids) == 0
+            )
+            self.confirm_selected.callback = self.confirm_selected_kick
+            self.add_item(self.confirm_selected)
+        else:
+            # Purge all button
+            self.purge_all = ui.Button(
+                label="Purge All Inactive",
+                style=discord.ButtonStyle.red,
+                emoji="🗑️",
+                row=1
+            )
+            self.purge_all.callback = self.purge_all_confirm
+            self.add_item(self.purge_all)
+
+    def _get_current_page_members(self) -> list[discord.Member]:
+        start = self.page * self.per_page
+        end = start + self.per_page
+        return self.inactive[start:end]
+
+    def get_embed(self, page: int) -> discord.Embed:
+        start = page * self.per_page
+        end = min(start + self.per_page, len(self.inactive))
+        members = self.inactive[start:end]
+
+        lines = []
+        for i, m in enumerate(members, start=start + 1):
+            joined = m.joined_at.strftime("%b %d, %Y") if m.joined_at else "Unknown"
+            prefix = "🟢 " if self.selective_mode and m.id in self.selected_ids else ""
+            lines.append(f"{prefix}{i}. {m.mention} — Joined: {joined}")
+
+        embed = discord.Embed(
+            title="🕵️ Inactive Members (0 Messages Tracked)",
+            description="\n".join(lines) or "No members on this page.",
+            color=discord.Color.dark_red(),
+            timestamp=datetime.now(timezone.utc),
+        )
+        mode_text = "Selective Mode" if self.selective_mode else "Full Purge Mode"
+        selected_count = len(self.selected_ids)
+        embed.set_footer(
+            text=f"Page {page+1}/{self.total_pages} • Total: {len(self.inactive)} • {mode_text} "
+                 f"• Selected: {selected_count} | Tracks since cog load"
+        )
+        if self.guild.icon:
+            embed.set_thumbnail(url=self.guild.icon.url)
+        return embed
+
+    async def _refresh(self, interaction: discord.Interaction):
+        embed = self.get_embed(self.page)
+        self.prev.disabled = self.page == 0
+        self.next_.disabled = self.page == self.total_pages - 1
+        self._build_ui()  # Rebuild to reflect mode & selections
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    # ──────────────── Callbacks ────────────────
+
+    async def previous_page(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user != self.author:
+            return await interaction.response.send_message("Not your panel.", ephemeral=True)
+        if self.page > 0:
+            self.page -= 1
+        await self._refresh(interaction)
+
+    async def next_page(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user != self.author:
+            return await interaction.response.send_message("Not your panel.", ephemeral=True)
+        if (self.page + 1) * self.per_page < len(self.inactive):
+            self.page += 1
+        await self._refresh(interaction)
+
+    async def toggle_mode(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user != self.author:
+            return await interaction.response.send_message("Not your panel.", ephemeral=True)
+        self.selective_mode = not self.selective_mode
+        if not self.selective_mode:
+            self.selected_ids.clear()  # reset when switching back
+        await self._refresh(interaction)
+
+    async def on_select_members(self, interaction: discord.Interaction, select: ui.StringSelect):
+        if interaction.user != self.author:
+            return await interaction.response.send_message("Not your panel.", ephemeral=True)
+
+        # Add newly selected
+        for val in select.values:
+            self.selected_ids.add(int(val))
+
+        # Remove any that were deselected (StringSelect doesn't send deselected ones → we need diff)
+        current_page_ids = {int(opt.value) for opt in select.options}
+        selected_on_page = {int(v) for v in select.values}
+        for mid in current_page_ids - selected_on_page:
+            self.selected_ids.discard(mid)
+
+        await self._refresh(interaction)
+
+    async def purge_all_confirm(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user != self.author:
+            return await interaction.response.send_message("Not your panel.", ephemeral=True)
+
+        confirm_view = ConfirmView(self, list(self.inactive), "all")
+        await interaction.response.send_message(
+            "**⚠️ FINAL WARNING**\nKick **ALL** listed inactive members?\nIrreversible!",
+            view=confirm_view,
+            ephemeral=True
+        )
+
+    async def confirm_selected_kick(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user != self.author:
+            return await interaction.response.send_message("Not your panel.", ephemeral=True)
+
+        if not self.selected_ids:
+            await interaction.response.send_message("No members selected.", ephemeral=True)
+            return
+
+        selected_members = [m for m in self.inactive if m.id in self.selected_ids]
+        confirm_view = ConfirmView(self, selected_members, "selected")
+        await interaction.response.send_message(
+            f"**⚠️ FINAL WARNING**\nKick **{len(selected_members)}** selected members?\nIrreversible!",
+            view=confirm_view,
+            ephemeral=True
+        )
+
+
+class ConfirmView(ui.View):
+    def __init__(self, parent: InactiveView, targets: list[discord.Member], mode: str):
+        super().__init__(timeout=120)
+        self.parent = parent
+        self.targets = targets
+        self.mode = mode
+
+    @ui.button(label="Yes — Kick Now", style=discord.ButtonStyle.red)
+    async def yes(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        await self.parent.perform_kick(interaction, self.targets)
+        self.stop()
+        await interaction.edit_original_response(content="Kick process started — see main message for progress.", view=None)
+
+    @ui.button(label="Cancel", style=discord.ButtonStyle.gray)
+    async def cancel(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.edit_message(content="Cancelled.", view=None)
+        self.stop()
+
+
+# ──────────────── Kick logic (moved to View for state access) ────────────────
+
+async def perform_kick(self: InactiveView, interaction: discord.Interaction, targets: list[discord.Member]):
+    kicked = 0
+    failed = 0
+    total = len(targets)
+    status = await interaction.followup.send(f"Starting kick of {total} members...", ephemeral=True)
+
+    for i, member in enumerate(targets, 1):
+        try:
+            await member.kick(reason="Inactive purge (0 messages tracked)")
+            await self.cog.config.member(member).clear()
+            kicked += 1
+        except discord.Forbidden:
+            failed += 1
+        except discord.HTTPException as e:
+            if e.status == 429:
+                await asyncio.sleep(1.2)
+                try:
+                    await member.kick(reason="Inactive purge (0 messages tracked)")
+                    await self.cog.config.member(member).clear()
+                    kicked += 1
+                except:
+                    failed += 1
+            else:
+                failed += 1
+
+        await asyncio.sleep(0.65)  # safe delay
+
+        if i % 8 == 0:
+            await status.edit(
+                content=f"⏳ Processing {i}/{total} | Kicked: {kicked} | Failed: {failed}"
+            )
+
+    summary = f"**Done!**\n✅ Kicked: {kicked}\n❌ Failed: {failed}"
+    await status.edit(content=summary)
+
+    # Refresh main view after kick (remove kicked from list)
+    remaining = [m for m in self.inactive if m not in targets]
+    self.inactive = remaining
+    self.selected_ids.clear()
+    if remaining:
+        self.total_pages = (len(remaining) + self.per_page - 1) // self.per_page
+        self.page = min(self.page, self.total_pages - 1)
+        await self._refresh(interaction)
+    else:
+        await self.message.edit(content="No more inactive members.", embed=None, view=None)
+
+
+InactiveView.perform_kick = perform_kick  # monkey-patch the method

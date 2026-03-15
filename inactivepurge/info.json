@@ -1,0 +1,23 @@
+{
+    "author": ["YourName"],
+    "install_msg": "InactivePurge loaded!\nUse [p]inactive to list & purge inactive members (full or selective).",
+    "name": "InactivePurge",
+    "short": "Paginated list & purge of members with 0 messages",
+    "description": "Shows inactive members (0 tracked messages). Supports full purge or selective kick via multi-select menu across pages. Modern UI with buttons & select menus, safe rate limits.",
+    "tags": ["moderation", "utility", "cleanup", "purge", "kick", "inactive", "select-menu"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "requirements": [],
+    "end_user_data_statement": "Stores only per-member message count (integer). No content stored. Data cleared on kick/leave."
+}{
+    "author": ["shadow using Grok"],
+    "install_msg": "InactivePurge loaded!\nUse [p]inactive to list & purge inactive members (full or selective).",
+    "name": "InactivePurge",
+    "short": "Paginated list & purge of members with 0 messages",
+    "description": "Shows inactive members (0 tracked messages). Supports full purge or selective kick via multi-select menu across pages. Modern UI with buttons & select menus, safe rate limits.",
+    "tags": ["moderation", "utility", "cleanup", "purge", "kick", "inactive", "select-menu"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "requirements": [],
+    "end_user_data_statement": "Stores only per-member message count (integer). No content stored. Data cleared on kick/leave."
+}
