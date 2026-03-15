@@ -1,10 +1,8 @@
 # inactivepurge/inactivepurge.py
 
 """
-Inactive Purge — Modern Red Cog (2026)
-Lists members with 0 tracked messages.
-Supports full purge OR selective purge with multi-select dropdown.
-Safe, clean, and fully verified.
+Inactive Purge — Modern Red Cog (March 2026)
+Fully fixed, all buttons work, tracking toggle, close button, safe cleanup.
 """
 
 from datetime import datetime, timezone
@@ -24,10 +22,13 @@ class InactivePurge(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=9876543210, force_registration=True)
         self.config.register_member(messages=0)
+        self.config.register_guild(tracking_enabled=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.guild is None or message.author.bot:
+            return
+        if not await self.config.guild(message.guild).tracking_enabled():
             return
         try:
             count = await self.config.member(message.author).messages()
@@ -74,6 +75,21 @@ class InactivePurge(commands.Cog):
         msg = await ctx.send(embed=embed, view=view)
         view.message = msg
 
+    @commands.hybrid_command(
+        name="inactivetracking",
+        description="Toggle message tracking for inactive detection.",
+    )
+    @commands.guild_only()
+    @commands.admin_or_permissions(manage_guild=True)
+    async def toggle_tracking(self, ctx: Context, enable: bool = None):
+        if enable is None:
+            current = await self.config.guild(ctx.guild).tracking_enabled()
+            await ctx.send(f"Message tracking is currently **{'enabled' if current else 'disabled'}**.")
+            return
+
+        await self.config.guild(ctx.guild).tracking_enabled.set(enable)
+        await ctx.send(f"Message tracking **{'enabled' if enable else 'disabled'}**.")
+
 
 class InactiveView(ui.View):
     def __init__(
@@ -83,7 +99,7 @@ class InactiveView(ui.View):
         inactive: list[discord.Member],
         author: discord.abc.User,
     ):
-        super().__init__(timeout=900)
+        super().__init__(timeout=1800)  # 30 minutes
         self.cog = cog
         self.guild = guild
         self.inactive = inactive
@@ -101,6 +117,7 @@ class InactiveView(ui.View):
     def _build_ui(self):
         self.clear_items()
 
+        # Navigation
         self.prev = ui.Button(emoji="◀️", style=discord.ButtonStyle.blurple, row=0, disabled=self.page == 0)
         self.next_ = ui.Button(emoji="▶️", style=discord.ButtonStyle.blurple, row=0, disabled=self.page == self.total_pages - 1)
         self.prev.callback = self.previous_page
@@ -108,12 +125,9 @@ class InactiveView(ui.View):
         self.add_item(self.prev)
         self.add_item(self.next_)
 
+        # Mode toggle
         toggle_label = "Switch to Selective" if not self.selective_mode else "Switch to All"
-        self.toggle = ui.Button(
-            label=toggle_label,
-            style=discord.ButtonStyle.green if self.selective_mode else discord.ButtonStyle.grey,
-            row=1
-        )
+        self.toggle = ui.Button(label=toggle_label, style=discord.ButtonStyle.green if self.selective_mode else discord.ButtonStyle.grey, row=1)
         self.toggle.callback = self.toggle_mode
         self.add_item(self.toggle)
 
@@ -122,42 +136,25 @@ class InactiveView(ui.View):
             options = []
             for m in current_members:
                 joined = m.joined_at.strftime("%Y-%m-%d") if m.joined_at else "Unknown"
-                options.append(
-                    discord.SelectOption(
-                        label=f"{m.display_name} ({m})",
-                        value=str(m.id),
-                        description=f"Joined {joined}"
-                    )
-                )
+                options.append(discord.SelectOption(label=f"{m.display_name} ({m})", value=str(m.id), description=f"Joined {joined}"))
 
-            self.select_menu = ui.Select(
-                placeholder="Select members to kick (multi-select)",
-                min_values=0,
-                max_values=len(options) if options else 1,
-                options=options or [discord.SelectOption(label="No members", value="0", default=True)],
-                row=2
-            )
+            self.select_menu = ui.Select(placeholder="Select members to kick (multi-select)", min_values=0, max_values=len(options) if options else 1,
+                                         options=options or [discord.SelectOption(label="No members", value="0", default=True)], row=2)
             self.select_menu.callback = self.on_select_members
             self.add_item(self.select_menu)
 
-            self.confirm_selected = ui.Button(
-                label="Confirm Selected Kicks",
-                style=discord.ButtonStyle.red,
-                emoji="🗑️",
-                row=3,
-                disabled=len(self.selected_ids) == 0
-            )
+            self.confirm_selected = ui.Button(label="Confirm Selected Kicks", style=discord.ButtonStyle.red, emoji="🗑️", row=3, disabled=len(self.selected_ids) == 0)
             self.confirm_selected.callback = self.confirm_selected_kick
             self.add_item(self.confirm_selected)
         else:
-            self.purge_all = ui.Button(
-                label="Purge All Inactive",
-                style=discord.ButtonStyle.red,
-                emoji="🗑️",
-                row=1
-            )
+            self.purge_all = ui.Button(label="Purge All Inactive", style=discord.ButtonStyle.red, emoji="🗑️", row=1)
             self.purge_all.callback = self.purge_all_confirm
             self.add_item(self.purge_all)
+
+        # Close button (always available)
+        self.close_btn = ui.Button(label="Close Panel", style=discord.ButtonStyle.gray, emoji="✖️", row=4)
+        self.close_btn.callback = self.close_panel
+        self.add_item(self.close_btn)
 
     def _get_current_page_members(self) -> list[discord.Member]:
         start = self.page * self.per_page
@@ -175,41 +172,43 @@ class InactiveView(ui.View):
             prefix = "🟢 " if self.selective_mode and m.id in self.selected_ids else ""
             lines.append(f"{prefix}{i}. {m.mention} — Joined: {joined}")
 
-        embed = discord.Embed(
-            title="🕵️ Inactive Members (0 Messages Tracked)",
-            description="\n".join(lines) or "No members on this page.",
-            color=discord.Color.dark_red(),
-            timestamp=datetime.now(timezone.utc),
-        )
+        embed = discord.Embed(title="🕵️ Inactive Members (0 Messages Tracked)", description="\n".join(lines) or "No members on this page.",
+                              color=discord.Color.dark_red(), timestamp=datetime.now(timezone.utc))
         mode_text = "Selective Mode" if self.selective_mode else "Full Purge Mode"
-        embed.set_footer(
-            text=f"Page {page+1}/{self.total_pages} • Total: {len(self.inactive)} • {mode_text} "
-                 f"• Selected: {len(self.selected_ids)} | Tracks since cog load"
-        )
+        embed.set_footer(text=f"Page {page+1}/{self.total_pages} • Total: {len(self.inactive)} • {mode_text} "
+                             f"• Selected: {len(self.selected_ids)} | Purge All = every member | Tracks since cog load")
         if self.guild.icon:
             embed.set_thumbnail(url=self.guild.icon.url)
         return embed
 
-    async def _refresh(self, interaction: discord.Interaction):
+    async def _refresh(self):
+        """Safe main message edit."""
         embed = self.get_embed(self.page)
         self.prev.disabled = self.page == 0
         self.next_.disabled = self.page == self.total_pages - 1
         self._build_ui()
-        await interaction.response.edit_message(embed=embed, view=self)
+        if self.message:
+            try:
+                await self.message.edit(embed=embed, view=self)
+            except discord.NotFound:
+                pass
 
+    # Button callbacks
     async def previous_page(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user != self.author:
             return await interaction.response.send_message("Not your panel.", ephemeral=True)
         if self.page > 0:
             self.page -= 1
-        await self._refresh(interaction)
+        await interaction.response.defer()
+        await self._refresh()
 
     async def next_page(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user != self.author:
             return await interaction.response.send_message("Not your panel.", ephemeral=True)
         if (self.page + 1) * self.per_page < len(self.inactive):
             self.page += 1
-        await self._refresh(interaction)
+        await interaction.response.defer()
+        await self._refresh()
 
     async def toggle_mode(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user != self.author:
@@ -217,7 +216,8 @@ class InactiveView(ui.View):
         self.selective_mode = not self.selective_mode
         if not self.selective_mode:
             self.selected_ids.clear()
-        await self._refresh(interaction)
+        await interaction.response.defer()
+        await self._refresh()
 
     async def on_select_members(self, interaction: discord.Interaction, select: ui.Select):
         if interaction.user != self.author:
@@ -228,7 +228,8 @@ class InactiveView(ui.View):
         selected_on_page = {int(v) for v in select.values}
         for mid in current_page_ids - selected_on_page:
             self.selected_ids.discard(mid)
-        await self._refresh(interaction)
+        await interaction.response.defer()
+        await self._refresh()
 
     async def purge_all_confirm(self, interaction: discord.Interaction, button: ui.Button):
         if interaction.user != self.author:
@@ -246,11 +247,17 @@ class InactiveView(ui.View):
         confirm_view = ConfirmView(self, selected_members, "selected")
         await interaction.response.send_message(f"**⚠️ FINAL WARNING**\nKick **{len(selected_members)}** selected members?\nIrreversible!", view=confirm_view, ephemeral=True)
 
-    async def perform_kick(self, interaction: discord.Interaction, targets: list[discord.Member]):
-        """Safe bulk kick with progress and config cleanup."""
+    async def close_panel(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user != self.author:
+            return await interaction.response.send_message("Not your panel.", ephemeral=True)
+        self.stop()
+        await interaction.response.edit_message(view=None)
+
+    async def perform_kick(self, targets: list[discord.Member]):
+        """Safe bulk kick + live cleanup."""
         kicked = failed = 0
         total = len(targets)
-        status = await interaction.followup.send(f"Starting kick of {total} members...", ephemeral=True)
+        status = await self.message.channel.send(f"Starting kick of {total} members...", reference=self.message)
 
         for i, member in enumerate(targets, 1):
             try:
@@ -280,12 +287,14 @@ class InactiveView(ui.View):
         remaining = [m for m in self.inactive if m not in targets]
         self.inactive = remaining
         self.selected_ids.clear()
+
         if remaining:
             self.total_pages = (len(remaining) + self.per_page - 1) // self.per_page
             self.page = min(self.page, self.total_pages - 1)
-            await self._refresh(interaction)
+            await self._refresh()
         else:
-            await self.message.edit(content="No more inactive members.", embed=None, view=None)
+            self.stop()
+            await self.message.edit(content="No more inactive members left.", embed=None, view=None)
 
 
 class ConfirmView(ui.View):
@@ -298,9 +307,9 @@ class ConfirmView(ui.View):
     @ui.button(label="Yes — Kick Now", style=discord.ButtonStyle.red)
     async def yes(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True)
-        await self.parent.perform_kick(interaction, self.targets)
+        await self.parent.perform_kick(self.targets)
         self.stop()
-        await interaction.edit_original_response(content="Kick process started — see main message for progress.", view=None)
+        await interaction.edit_original_response(content="Purge complete — check main panel for update.", view=None)
 
     @ui.button(label="Cancel", style=discord.ButtonStyle.gray)
     async def cancel(self, interaction: discord.Interaction, button: ui.Button):
