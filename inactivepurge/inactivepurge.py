@@ -1,5 +1,3 @@
-# inactivepurge/inactivepurge.py
-
 """
 Inactive Purge — Proven Working Red Cog
 All buttons work. Tracking OFF by default. Selective + full purge.
