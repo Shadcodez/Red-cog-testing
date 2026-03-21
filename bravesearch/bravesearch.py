@@ -109,7 +109,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
                 data = await r.json()
                 return data["choices"][0]["message"]["content"].strip()
 
-    # ── Follow-up & reaction logic (unchanged, reliable) ──────────────────
+    # ── Follow-up & reaction logic ────────────────────────────────────────
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
@@ -202,9 +202,30 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
     async def bravesearchset(self, ctx: commands.Context):
         """BraveSearch configuration commands
 
-        Use without subcommand to see help for this group"""
+        Use without subcommand to see this list"""
         if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+            prefix = ctx.clean_prefix
+            subcmds = sorted(self.bravesearchset.commands.values(), key=lambda c: c.name)
+
+            lines = []
+            for cmd in subcmds:
+                brief = (cmd.help or cmd.description or "No description").split("\n")[0].strip()
+                lines.append(f"• `{prefix}{cmd.qualified_name}` — {brief}")
+
+            embed = discord.Embed(
+                title="BraveSearch Settings",
+                description=(
+                    "Configure Brave Search behavior for this server.\n\n"
+                    "**Available commands:**\n" + "\n".join(lines) +
+                    "\n\n**Example:**\n"
+                    f"`{prefix}bravesearchset mode answers` — enable AI answers"
+                ),
+                color=0xFF631C,
+                timestamp=datetime.utcnow(),
+            )
+            embed.set_footer(text=f"Use {prefix}help bravesearchset <subcommand> for detailed usage")
+
+            await ctx.send(embed=embed)
 
     @bravesearchset.command()
     @commands.guildowner_or_permissions(administrator=True)
@@ -243,7 +264,7 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         embed.add_field(name="Error Channel", value=ch.mention if ch else "Disabled", inline=True)
         await ctx.send(embed=embed)
 
-    @bravesearchset.command()
+    @bravesearchset.command(name="setbravekey")
     async def setbravekey(self, ctx: commands.Context, *, key: str = None):
         """Set Brave API key (bot owner only)"""
         if not await self.bot.is_owner(ctx.author):
