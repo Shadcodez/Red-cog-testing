@@ -205,7 +205,8 @@ class BraveSearch(commands.GroupCog, name="bravesearch"):
         Use without subcommand to see this list"""
         if ctx.invoked_subcommand is None:
             prefix = ctx.clean_prefix
-            subcmds = sorted(self.bravesearchset.commands.values(), key=lambda c: c.name)
+            # Fixed: .commands is a set in recent Redbot versions, no .values()
+            subcmds = sorted(self.bravesearchset.commands, key=lambda c: c.name)
 
             lines = []
             for cmd in subcmds:
