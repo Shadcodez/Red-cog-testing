@@ -15,12 +15,12 @@ from redbot.core.bot import Red
 class ExcelEvents(commands.Cog):
     """Easily create and manage Discord Scheduled Events from Excel or pasted CSV.
 
-    Optimized & Hardened:
-    • Max 500 events per paste (safety limit)
-    • Fast, low-memory CSV parsing
-    • Robust BadZipFile protection with clear guidance
-    • Rate-limit safe sync with real-time feedback
-    • Full announcement + reminder system
+    Hardened Version:
+    • Max 500 events per paste
+    • Very robust CSV parsing (handles trailing commas, spaces, inconsistent columns)
+    • Defensive column mapping by name (case-insensitive)
+    • Stronger validation with better error messages
+    • Rate-limit safe operations
     """
 
     MAX_ROWS = 500  # Safety limit for paste command
@@ -59,6 +59,8 @@ class ExcelEvents(commands.Cog):
             except Exception:
                 pass
         value_str = str(value).strip()
+        if not value_str:
+            return None
         formats = [
             "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S",
             "%m/%d/%Y %H:%M", "%m/%d/%Y %H:%M:%S",
@@ -84,6 +86,22 @@ class ExcelEvents(commands.Cog):
             return header[:2] == b'PK'
         except Exception:
             return False
+
+    # ====================== ROBUST COLUMN MAPPING ======================
+    def _get_column_indices(self, headers: List[str]) -> Dict[str, int]:
+        """Return a dict of normalized column name -> index for safe access."""
+        col_map = {}
+        for i, h in enumerate(headers):
+            if h:
+                col_map[self._normalize_key(h)] = i
+        return col_map
+
+    def _get_cell(self, row: tuple, col_map: Dict[str, int], key: str, default=None):
+        idx = col_map.get(self._normalize_key(key))
+        if idx is not None and idx < len(row):
+            val = row[idx]
+            return val if val is not None else default
+        return default
 
     async def _create_event(self, guild: discord.Guild, data: Dict) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
@@ -196,6 +214,7 @@ class ExcelEvents(commands.Cog):
 
             header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
             headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_row]
+            col_map = self._get_column_indices(headers)
 
         except (zipfile.BadZipFile, openpyxl.utils.exceptions.InvalidFileException):
             errors.append("❌ This is **not** a valid .xlsx file.")
@@ -207,7 +226,7 @@ class ExcelEvents(commands.Cog):
             return errors, warnings
 
         required = {"name", "start"}
-        missing = [col for col in required if col not in headers]
+        missing = [col for col in required if col not in col_map]
         if missing:
             errors.append(f"Missing required column(s): {', '.join(missing)}")
 
@@ -219,9 +238,9 @@ class ExcelEvents(commands.Cog):
             if not row or all(v is None for v in row):
                 continue
 
-            data = {headers[i]: row[i] for i in range(len(row)) if i < len(headers) and headers[i]}
+            name = str(self._get_cell(row, col_map, "name", "")).strip()
+            start_val = self._get_cell(row, col_map, "start")
 
-            name = str(data.get("name", "")).strip()
             if not name:
                 errors.append(f"Row {row_num}: Missing or empty **Name**")
                 continue
@@ -234,17 +253,17 @@ class ExcelEvents(commands.Cog):
                 warnings.append(f"Row {row_num}: Duplicate name '{name}' – only last row kept")
             seen_names.add(key)
 
-            start_dt = await self._parse_datetime(data.get("start"))
+            start_dt = await self._parse_datetime(start_val)
             if not start_dt:
-                errors.append(f"Row {row_num}: Invalid **Start** time")
+                errors.append(f"Row {row_num}: Invalid **Start** time format")
             elif start_dt < datetime.now(timezone.utc):
                 warnings.append(f"Row {row_num}: Start time is in the past")
 
-            end_val = data.get("end")
+            end_val = self._get_cell(row, col_map, "end")
             if end_val:
                 end_dt = await self._parse_datetime(end_val)
                 if not end_dt:
-                    errors.append(f"Row {row_num}: Invalid **End** time")
+                    errors.append(f"Row {row_num}: Invalid **End** time format")
                 elif start_dt and end_dt <= start_dt:
                     errors.append(f"Row {row_num}: End time must be after Start time")
 
@@ -323,7 +342,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
-        """Optimized paste command with row limit (max 500 events)."""
+        """Hardened paste command – very tolerant of trailing commas/spaces."""
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
@@ -336,13 +355,15 @@ class ExcelEvents(commands.Cog):
         file_path = data_path / "events.xlsx"
 
         try:
-            input_io = io.StringIO(csv_text)
-            reader = csv.reader(input_io, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            input_io = io.StringIO(csv_text.strip())
+            reader = csv.reader(input_io, delimiter=',', quotechar='"',
+                                quoting=csv.QUOTE_MINIMAL, skipinitialspace=True)
 
             rows = []
             for row in reader:
-                if row and any(cell.strip() for cell in row):  # Skip empty lines
-                    rows.append(row)
+                if row and any(cell.strip() for cell in row):
+                    cleaned_row = [cell.strip() for cell in row]
+                    rows.append(cleaned_row)
 
             if len(rows) < 1:
                 await ctx.send("❌ No valid rows found in the pasted CSV.")
@@ -350,8 +371,17 @@ class ExcelEvents(commands.Cog):
 
             # Enforce row limit
             if len(rows) - 1 > self.MAX_ROWS:
-                rows = rows[:self.MAX_ROWS + 1]  # Keep header + MAX_ROWS
+                rows = rows[:self.MAX_ROWS + 1]
                 await ctx.send(f"⚠️ **Row limit reached!** Only the first **{self.MAX_ROWS}** events were saved.")
+
+            # Align all rows to header length (critical for robustness)
+            if rows:
+                header_len = len(rows[0])
+                for i in range(1, len(rows)):
+                    if len(rows[i]) > header_len:
+                        rows[i] = rows[i][:header_len]
+                    elif len(rows[i]) < header_len:
+                        rows[i] += [''] * (header_len - len(rows[i]))
 
             wb = openpyxl.Workbook()
             ws = wb.active
@@ -361,7 +391,7 @@ class ExcelEvents(commands.Cog):
 
             data_rows = len(rows) - 1
             await ctx.send(
-                f"✅ **CSV parsed and saved!**\n"
+                f"✅ **CSV parsed and saved successfully!**\n"
                 f"• **{data_rows}** event rows processed\n"
                 f"Use `{ctx.prefix}excelevents check` to validate."
             )
@@ -409,8 +439,9 @@ class ExcelEvents(commands.Cog):
         try:
             wb = openpyxl.load_workbook(file_path, data_only=True)
             ws = wb.active
-            headers = [str(cell.value).strip().lower() if cell.value is not None else "" 
-                       for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_row]
+            col_map = self._get_column_indices(headers)
 
             mappings = await self.config.guild(ctx.guild).event_mappings()
             new_mappings: Dict[str, int] = {}
@@ -424,10 +455,8 @@ class ExcelEvents(commands.Cog):
                 if not row or all(v is None for v in row):
                     continue
 
-                data = {headers[i]: row[i] for i in range(len(row)) if i < len(headers) and headers[i]}
-
-                name = str(data.get("name", "")).strip()
-                await ctx.send(f"**Row {row_num}** → Name: `{name}` | Start: `{data.get('start')}`")
+                name = str(self._get_cell(row, col_map, "name", "")).strip()
+                await ctx.send(f"**Row {row_num}** → Name: `{name}`")
 
                 if not name:
                     continue
@@ -435,7 +464,17 @@ class ExcelEvents(commands.Cog):
                 key = self._normalize_key(name)
                 active_keys.add(key)
 
-                start_time = await self._parse_datetime(data.get("start"))
+                data = {
+                    "name": name,
+                    "start": self._get_cell(row, col_map, "start"),
+                    "end": self._get_cell(row, col_map, "end"),
+                    "description": self._get_cell(row, col_map, "description"),
+                    "type": self._get_cell(row, col_map, "type"),
+                    "location": self._get_cell(row, col_map, "location"),
+                    "channelid": self._get_cell(row, col_map, "channelid"),
+                }
+
+                start_time = await self._parse_datetime(data["start"])
                 if not start_time:
                     continue
 
@@ -451,10 +490,10 @@ class ExcelEvents(commands.Cog):
                         new_mappings[key] = event.id
                         processed += 1
                         await ctx.send(f"✅ **Updated:** [{name}]({event.url})")
-                        await asyncio.sleep(0.8)  # Extra safety
+                        await asyncio.sleep(0.8)
                         continue
                     except Exception:
-                        pass
+                        pass  # Fall through to create new
 
                 new_event = await self._create_event(ctx.guild, data)
                 if new_event:
@@ -462,8 +501,10 @@ class ExcelEvents(commands.Cog):
                     new_events_created.append(new_event)
                     processed += 1
                     await ctx.send(f"✅ **Created:** [{new_event.name}]({new_event.url})")
+                else:
+                    await ctx.send(f"⚠️ **Failed to create/update** event: {name}")
 
-            # Cleanup
+            # Cleanup old events
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
@@ -477,7 +518,7 @@ class ExcelEvents(commands.Cog):
             await self.config.guild(ctx.guild).event_mappings.set(new_mappings)
             await self.config.guild(ctx.guild).last_synced.set(datetime.now(timezone.utc).isoformat())
 
-            # Announcement
+            # Announcement for new events
             announcement_mode = await self.config.guild(ctx.guild).announcement_mode()
             announced = 0
             if announcement_mode and new_events_created:
@@ -502,7 +543,7 @@ class ExcelEvents(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Sync failed: {type(e).__name__}: {e}")
 
-    # Status, Announcement, Reminder, Clear commands (unchanged from previous version)
+    # Status, Announcement, Reminder, Clear commands
     @excelevents.command(name="status")
     async def status(self, ctx: commands.Context):
         data_path = data_manager.cog_data_path(self)
@@ -548,7 +589,6 @@ class ExcelEvents(commands.Cog):
 
     @reminder_group.command(name="times")
     async def reminder_times(self, ctx: commands.Context, *minutes: int):
-        """Set reminder times (e.g. 60 15 5)."""
         valid = [m for m in minutes if m > 0]
         if not valid:
             await ctx.send("❌ Please provide positive numbers.")
@@ -570,6 +610,3 @@ class ExcelEvents(commands.Cog):
     def cog_unload(self):
         if self.reminder_task and not self.reminder_task.done():
             self.reminder_task.cancel()
-
-
-# End
