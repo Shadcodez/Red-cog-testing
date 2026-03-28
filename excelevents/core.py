@@ -15,7 +15,7 @@ from .utils import _parse_datetime, _get_column_indices, _get_cell, _normalize_k
 
 
 class ExcelEvents(commands.Cog):
-    """Bulk Discord Scheduled Events from Excel/CSV with enhanced image support."""
+    """Bulk Discord Scheduled Events from Excel/CSV with refined image support."""
 
     MAX_ROWS = 500
     MAX_IMAGE_SIZE = 15 * 1024 * 1024
@@ -37,7 +37,7 @@ class ExcelEvents(commands.Cog):
         self.reminder_task = None
         self.session = None
 
-        # Attach all commands from commands.py
+        # Attach commands from commands.py
         from .commands import attach_commands
         attach_commands(self)
 
@@ -52,8 +52,9 @@ class ExcelEvents(commands.Cog):
         if self.reminder_task and not self.reminder_task.done():
             self.reminder_task.cancel()
 
-    # ====================== MASTER IMAGE DOWNLOADER ======================
+    # ====================== REFINED IMAGE DOWNLOADER ======================
     async def _download_image(self, url: str) -> Optional[bytes]:
+        """Refined image downloader with retries and strong browser headers."""
         if not url or not str(url).startswith(("http://", "https://")):
             return None
 
@@ -75,26 +76,30 @@ class ExcelEvents(commands.Cog):
             "Referer": "https://imgur.com/",
         }
 
-        try:
-            async with self.session.get(url, headers=headers, timeout=25, allow_redirects=True) as resp:
-                if resp.status != 200:
-                    return None
+        for attempt in range(2):  # retry once on failure
+            try:
+                async with self.session.get(url, headers=headers, timeout=25, allow_redirects=True) as resp:
+                    if resp.status != 200:
+                        continue
 
-                content_length = int(resp.headers.get("Content-Length", 0))
-                if content_length > self.MAX_IMAGE_SIZE or content_length == 0:
-                    return None
+                    content_length = int(resp.headers.get("Content-Length", 0))
+                    if content_length > self.MAX_IMAGE_SIZE or content_length == 0:
+                        continue
 
-                data = await resp.read()
-                content_type = resp.headers.get("Content-Type", "").lower()
+                    data = await resp.read()
+                    content_type = resp.headers.get("Content-Type", "").lower()
 
-                if len(data) > 10240 and (
-                    any(x in content_type for x in ("image/", "jpeg", "png", "gif", "webp")) or
-                    data.startswith((b'\xff\xd8', b'\x89PNG', b'GIF8'))
-                ):
-                    return data
-                return None
-        except Exception:
-            return None
+                    if len(data) > 10240 and (
+                        any(x in content_type for x in ("image/", "jpeg", "png", "gif", "webp")) or
+                        data.startswith((b'\xff\xd8', b'\x89PNG', b'GIF8'))
+                    ):
+                        return data
+            except Exception:
+                if attempt == 0:
+                    await asyncio.sleep(1.5)  # small delay before retry
+                continue
+
+        return None
 
     async def _create_event_with_image(self, guild: discord.Guild, data: Dict, image_bytes: Optional[bytes] = None) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
@@ -132,26 +137,38 @@ class ExcelEvents(commands.Cog):
                 pass
 
         try:
+            # Create event first
             if entity_type == discord.EntityType.external:
                 if not location:
                     return None
                 event = await guild.create_scheduled_event(
-                    name=name, description=description, start_time=start_time,
-                    end_time=end_time, entity_type=entity_type, location=location,
-                    privacy_level=discord.PrivacyLevel.guild_only
+                    name=name,
+                    description=description,
+                    start_time=start_time,
+                    end_time=end_time,
+                    entity_type=entity_type,
+                    location=location,
+                    privacy_level=discord.PrivacyLevel.guild_only,
                 )
             else:
                 if not channel:
                     return None
                 event = await guild.create_scheduled_event(
-                    name=name, description=description, start_time=start_time,
-                    end_time=end_time, entity_type=entity_type, channel=channel,
-                    privacy_level=discord.PrivacyLevel.guild_only
+                    name=name,
+                    description=description,
+                    start_time=start_time,
+                    end_time=end_time,
+                    entity_type=entity_type,
+                    channel=channel,
+                    privacy_level=discord.PrivacyLevel.guild_only,
                 )
 
+            # Apply cover image
             if image_bytes:
-                await event.edit(cover=image_bytes)
-                await asyncio.sleep(1.0)
+                try:
+                    await event.edit(cover=image_bytes)
+                except Exception:
+                    pass  # image failed but event still created
 
             await asyncio.sleep(1.8)
             return event
