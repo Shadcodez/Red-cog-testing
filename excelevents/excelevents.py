@@ -113,7 +113,7 @@ class ExcelEvents(commands.Cog):
         """
         Upload an events.xlsx file.
 
-        **Easy copy & paste example** (row 1):
+        **Easy copy & paste example** (paste into row 1 of Excel):
         ```csv
         Type,Name,Description,Start,End,Location,ChannelID
         voice,Finding knees toes,Just look down bruh,2026-05-29 08:00,2026-05-29 09:00,,166220559225585664
@@ -175,6 +175,11 @@ class ExcelEvents(commands.Cog):
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
         """Process the uploaded Excel or pasted CSV and sync Discord events."""
+        # Permission check
+        if not ctx.guild.me.guild_permissions.manage_events:
+            await ctx.send("❌ I need the **Manage Events** permission to create or update events.")
+            return
+
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
 
