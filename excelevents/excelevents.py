@@ -1,6 +1,5 @@
 import asyncio
 import discord
-from discord.ui import View, Button
 from redbot.core import commands, Config, data_manager
 from redbot.core.bot import Red
 import openpyxl
@@ -23,15 +22,15 @@ class ExcelEvents(commands.Cog):
         self.config.register_guild(**defaults_guild)
 
     # ====================== CONFIRMATION VIEW ======================
-    class ConfirmView(View):
+    class ConfirmView(discord.ui.View):
         def __init__(self, ctx: commands.Context, action: str, callback):
             super().__init__(timeout=60)
             self.ctx = ctx
             self.action = action
             self.callback = callback
 
-        @Button(label="✅ Confirm", style=discord.ButtonStyle.danger)
-        async def confirm(self, interaction: discord.Interaction, button: Button):
+        @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.danger)
+        async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.ctx.author.id:
                 await interaction.response.send_message("Only the command author can confirm.", ephemeral=True)
                 return
@@ -39,8 +38,8 @@ class ExcelEvents(commands.Cog):
             await self.callback()
             self.stop()
 
-        @Button(label="❌ Cancel", style=discord.ButtonStyle.secondary)
-        async def cancel(self, interaction: discord.Interaction, button: Button):
+        @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary)
+        async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.ctx.author.id:
                 await interaction.response.send_message("Only the command author can cancel.", ephemeral=True)
                 return
@@ -103,7 +102,7 @@ class ExcelEvents(commands.Cog):
                 channel=channel,
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
-            await asyncio.sleep(1.5)  # Rate-limit protection
+            await asyncio.sleep(1.5)  # Rate-limit safety
             return event
         except discord.HTTPException as exc:
             print(f"[ExcelEvents] Failed to create event '{name}': {exc}")
@@ -130,7 +129,7 @@ class ExcelEvents(commands.Cog):
         conference,Big Conference,Annual company event,2026-05-10 09:00,2026-05-10 17:00,New York Convention Center,
         ```
         - `Key` = unique identifier (required)
-        - `Start` = required (datetime or ISO)
+        - `Start` = required
         - Use `Location` for external events
         - `Channel` = voice/stage name or ID
         """
@@ -204,7 +203,7 @@ class ExcelEvents(commands.Cog):
                             start_time=start_time,
                             end_time=end_time,
                         )
-                        await asyncio.sleep(1.5)  # Rate-limit protection
+                        await asyncio.sleep(1.5)
                         new_mappings[key] = event.id
                         continue
                     except (discord.NotFound, discord.HTTPException):
@@ -214,7 +213,7 @@ class ExcelEvents(commands.Cog):
                 if new_event:
                     new_mappings[key] = new_event.id
 
-            # Delete events no longer in sheet
+            # Delete removed events
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
@@ -276,8 +275,9 @@ class ExcelEvents(commands.Cog):
                 await ctx.send(f"Failed to delete: {e}")
                 return
 
-            del mappings[key]
-            await self.config.guild(ctx.guild).event_mappings.set(mappings)
+            if key in mappings:
+                del mappings[key]
+                await self.config.guild(ctx.guild).event_mappings.set(mappings)
 
         view = self.ConfirmView(ctx, f"delete key `{key}`", do_delete)
         await ctx.send(f"⚠️ Are you sure you want to delete the event with key `{key}`?", view=view)
@@ -303,7 +303,8 @@ class ExcelEvents(commands.Cog):
             return
 
         async def do_clearfile():
-            file_path.unlink()
+            if file_path.exists():
+                file_path.unlink()
             await ctx.send("✅ Excel file has been deleted. You can upload a new one with `excelevents upload`.")
 
         view = self.ConfirmView(ctx, "delete the Excel file", do_clearfile)
