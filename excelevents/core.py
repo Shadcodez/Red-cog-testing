@@ -37,6 +37,10 @@ class ExcelEvents(commands.Cog):
         self.reminder_task = None
         self.session = None
 
+        # Attach all commands from commands.py
+        from .commands import attach_commands
+        attach_commands(self)
+
     async def cog_load(self):
         self.session = aiohttp.ClientSession()
         if self.reminder_task is None or self.reminder_task.done():
