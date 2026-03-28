@@ -60,6 +60,7 @@ class ExcelEvents(commands.Cog):
         return None
 
     async def _create_event(self, guild: discord.Guild, data: Dict) -> Optional[discord.ScheduledEvent]:
+        """Create a new scheduled event (compatible with current Red/discord.py)."""
         name = str(data.get("Name", "Unnamed Event")).strip()
         if not name:
             return None
@@ -73,13 +74,15 @@ class ExcelEvents(commands.Cog):
         location = str(data.get("Location", "")).strip() or None
 
         channel_input = data.get("Channel")
+
+        # External event (Somewhere Else)
         if location and not channel_input:
             entity_type = discord.EntityType.external
-            entity_metadata = discord.ScheduledEventEntityMetadata(location=location)
             channel = None
+            # location is passed directly (no entity_metadata)
         else:
+            # Voice or Stage event
             entity_type = discord.EntityType.voice
-            entity_metadata = None
             channel = None
             if channel_input:
                 try:
@@ -98,11 +101,11 @@ class ExcelEvents(commands.Cog):
                 start_time=start_time,
                 end_time=end_time,
                 entity_type=entity_type,
-                entity_metadata=entity_metadata,
                 channel=channel,
+                location=location if entity_type == discord.EntityType.external else None,
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
-            await asyncio.sleep(1.5)  # Rate-limit safety
+            await asyncio.sleep(1.5)  # Rate-limit protection
             return event
         except discord.HTTPException as exc:
             print(f"[ExcelEvents] Failed to create event '{name}': {exc}")
@@ -130,7 +133,7 @@ class ExcelEvents(commands.Cog):
         ```
         - `Key` = unique identifier (required)
         - `Start` = required
-        - Use `Location` for external events
+        - Use `Location` for external events ("Somewhere Else")
         - `Channel` = voice/stage name or ID
         """
         if not ctx.message.attachments:
@@ -213,7 +216,7 @@ class ExcelEvents(commands.Cog):
                 if new_event:
                     new_mappings[key] = new_event.id
 
-            # Delete removed events
+            # Delete events no longer in sheet
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
