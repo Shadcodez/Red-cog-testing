@@ -1,6 +1,7 @@
 # ExcelEvents/core.py
 import asyncio
 import aiohttp
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -17,7 +18,7 @@ class ExcelEvents(commands.Cog):
     """Bulk Discord Scheduled Events from Excel/CSV with enhanced image support."""
 
     MAX_ROWS = 500
-    MAX_IMAGE_SIZE = 15 * 1024 * 1024  # 15 MB
+    MAX_IMAGE_SIZE = 15 * 1024 * 1024
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -49,7 +50,6 @@ class ExcelEvents(commands.Cog):
 
     # ====================== MASTER IMAGE DOWNLOADER ======================
     async def _download_image(self, url: str) -> Optional[bytes]:
-        """Highly tolerant image downloader with browser-like headers."""
         if not url or not str(url).startswith(("http://", "https://")):
             return None
 
@@ -128,33 +128,23 @@ class ExcelEvents(commands.Cog):
                 pass
 
         try:
-            # Create event first
             if entity_type == discord.EntityType.external:
                 if not location:
                     return None
                 event = await guild.create_scheduled_event(
-                    name=name,
-                    description=description,
-                    start_time=start_time,
-                    end_time=end_time,
-                    entity_type=entity_type,
-                    location=location,
-                    privacy_level=discord.PrivacyLevel.guild_only,
+                    name=name, description=description, start_time=start_time,
+                    end_time=end_time, entity_type=entity_type, location=location,
+                    privacy_level=discord.PrivacyLevel.guild_only
                 )
             else:
                 if not channel:
                     return None
                 event = await guild.create_scheduled_event(
-                    name=name,
-                    description=description,
-                    start_time=start_time,
-                    end_time=end_time,
-                    entity_type=entity_type,
-                    channel=channel,
-                    privacy_level=discord.PrivacyLevel.guild_only,
+                    name=name, description=description, start_time=start_time,
+                    end_time=end_time, entity_type=entity_type, channel=channel,
+                    privacy_level=discord.PrivacyLevel.guild_only
                 )
 
-            # Apply cover image
             if image_bytes:
                 await event.edit(cover=image_bytes)
                 await asyncio.sleep(1.0)
