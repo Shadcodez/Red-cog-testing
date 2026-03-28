@@ -37,7 +37,7 @@ class ExcelEvents(commands.Cog):
         self.reminder_task = None
         self.session = None
 
-        # Attach commands from commands.py
+        # Attach commands
         from .commands import attach_commands
         attach_commands(self)
 
@@ -54,13 +54,13 @@ class ExcelEvents(commands.Cog):
 
     # ====================== REFINED IMAGE DOWNLOADER ======================
     async def _download_image(self, url: str) -> Optional[bytes]:
-        """Refined image downloader with retries and strong browser headers."""
+        """Final refined image downloader with retries and strong browser headers."""
         if not url or not str(url).startswith(("http://", "https://")):
             return None
 
         url = url.strip()
 
-        # Imgur auto-fix
+        # Imgur fixes
         if "imgur.com" in url:
             url = url.replace(".jpeg", ".jpg").replace(".JPEG", ".jpg")
             if "i.imgur.com" not in url and "imgur.com" in url:
@@ -76,19 +76,16 @@ class ExcelEvents(commands.Cog):
             "Referer": "https://imgur.com/",
         }
 
-        for attempt in range(2):  # retry once on failure
+        for attempt in range(2):
             try:
                 async with self.session.get(url, headers=headers, timeout=25, allow_redirects=True) as resp:
                     if resp.status != 200:
                         continue
-
                     content_length = int(resp.headers.get("Content-Length", 0))
                     if content_length > self.MAX_IMAGE_SIZE or content_length == 0:
                         continue
-
                     data = await resp.read()
                     content_type = resp.headers.get("Content-Type", "").lower()
-
                     if len(data) > 10240 and (
                         any(x in content_type for x in ("image/", "jpeg", "png", "gif", "webp")) or
                         data.startswith((b'\xff\xd8', b'\x89PNG', b'GIF8'))
@@ -96,9 +93,8 @@ class ExcelEvents(commands.Cog):
                         return data
             except Exception:
                 if attempt == 0:
-                    await asyncio.sleep(1.5)  # small delay before retry
+                    await asyncio.sleep(1.5)
                 continue
-
         return None
 
     async def _create_event_with_image(self, guild: discord.Guild, data: Dict, image_bytes: Optional[bytes] = None) -> Optional[discord.ScheduledEvent]:
@@ -137,33 +133,23 @@ class ExcelEvents(commands.Cog):
                 pass
 
         try:
-            # Create event first
             if entity_type == discord.EntityType.external:
                 if not location:
                     return None
                 event = await guild.create_scheduled_event(
-                    name=name,
-                    description=description,
-                    start_time=start_time,
-                    end_time=end_time,
-                    entity_type=entity_type,
-                    location=location,
-                    privacy_level=discord.PrivacyLevel.guild_only,
+                    name=name, description=description, start_time=start_time,
+                    end_time=end_time, entity_type=entity_type, location=location,
+                    privacy_level=discord.PrivacyLevel.guild_only
                 )
             else:
                 if not channel:
                     return None
                 event = await guild.create_scheduled_event(
-                    name=name,
-                    description=description,
-                    start_time=start_time,
-                    end_time=end_time,
-                    entity_type=entity_type,
-                    channel=channel,
-                    privacy_level=discord.PrivacyLevel.guild_only,
+                    name=name, description=description, start_time=start_time,
+                    end_time=end_time, entity_type=entity_type, channel=channel,
+                    privacy_level=discord.PrivacyLevel.guild_only
                 )
 
-            # Apply cover image
             if image_bytes:
                 try:
                     await event.edit(cover=image_bytes)
@@ -225,7 +211,6 @@ class ExcelEvents(commands.Cog):
         embed.set_footer(text=f"Reminder • ExcelEvents")
         return embed
 
-    # ====================== VALIDATION ======================
     async def _validate_excel(self, file_path: Path, guild: discord.Guild) -> Tuple[List[str], List[str]]:
         errors: List[str] = []
         warnings: List[str] = []
@@ -298,7 +283,6 @@ class ExcelEvents(commands.Cog):
 
         return errors, warnings
 
-    # ====================== REMINDER TASK ======================
     async def _reminder_task(self):
         await self.bot.wait_until_ready()
         while True:
