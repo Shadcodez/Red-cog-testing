@@ -60,7 +60,7 @@ class ExcelEvents(commands.Cog):
 
         url = url.strip()
 
-        # Imgur fixes
+        # Imgur auto-fix
         if "imgur.com" in url:
             url = url.replace(".jpeg", ".jpg").replace(".JPEG", ".jpg")
             if "i.imgur.com" not in url and "imgur.com" in url:
@@ -154,7 +154,7 @@ class ExcelEvents(commands.Cog):
                 try:
                     await event.edit(cover=image_bytes)
                 except Exception:
-                    pass  # image failed but event still created
+                    pass
 
             await asyncio.sleep(1.8)
             return event
