@@ -23,7 +23,6 @@ class ExcelEvents(commands.Cog):
         }
         self.config.register_guild(**defaults_guild)
 
-    # ====================== FORGIVING DATE PARSER ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
         if not value:
             return None
@@ -52,13 +51,15 @@ class ExcelEvents(commands.Cog):
     def _normalize_key(self, name: str) -> str:
         return str(name).strip().lower()
 
-    async def _create_event(self, guild: discord.Guild, data: Dict) -> Optional[discord.ScheduledEvent]:
+    async def _create_event(self, guild: discord.Guild, data: Dict, row_num: int) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
         if not name:
+            await ctx.send(f"❌ Row {row_num}: No Name")
             return None
 
         start_time = await self._parse_datetime(data.get("start"))
         if not start_time:
+            await ctx.send(f"❌ Row {row_num}: Could not parse Start time")
             return None
 
         end_time = await self._parse_datetime(data.get("end"))
@@ -80,8 +81,15 @@ class ExcelEvents(commands.Cog):
                 try:
                     ch_id = int(str(channel_id_input).strip())
                     channel = guild.get_channel(ch_id)
+                    if not channel:
+                        await ctx.send(f"❌ Row {row_num}: ChannelID `{ch_id}` not found in this server")
+                        return None
                 except:
-                    pass
+                    await ctx.send(f"❌ Row {row_num}: Invalid ChannelID format")
+                    return None
+            else:
+                await ctx.send(f"❌ Row {row_num}: Voice/Stage event requires a ChannelID")
+                return None
 
         try:
             event = await guild.create_scheduled_event(
@@ -95,8 +103,13 @@ class ExcelEvents(commands.Cog):
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
             await asyncio.sleep(1.5)
+            await ctx.send(f"✅ Row {row_num}: Successfully created '**{name}**'")
             return event
-        except:
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Row {row_num}: Discord API error: {e}")
+            return None
+        except Exception as e:
+            await ctx.send(f"❌ Row {row_num}: Unexpected error: {e}")
             return None
 
     # ====================== COMMANDS ======================
@@ -113,7 +126,7 @@ class ExcelEvents(commands.Cog):
         """
         Upload an events.xlsx file.
 
-        **Easy copy & paste example** (paste into row 1 of Excel):
+        **Easy copy & paste example** (row 1):
         ```csv
         Type,Name,Description,Start,End,Location,ChannelID
         voice,Finding knees toes,Just look down bruh,2026-05-29 08:00,2026-05-29 09:00,,166220559225585664
@@ -182,7 +195,7 @@ class ExcelEvents(commands.Cog):
             await ctx.send("No file found. Use `upload` or `paste` first.")
             return
 
-        await ctx.send("🔄 Syncing events...")
+        await ctx.send("🔄 Syncing events... (detailed feedback below)")
 
         try:
             wb = openpyxl.load_workbook(file_path, data_only=True)
@@ -203,6 +216,8 @@ class ExcelEvents(commands.Cog):
                 data = {headers[i]: row[i] for i in range(len(row)) if i < len(headers) and headers[i]}
                 name = str(data.get("name", "")).strip()
 
+                await ctx.send(f"**Row {row_num}** → Name: `{name}` | Start: `{data.get('start')}` | ChannelID: `{data.get('channelid')}`")
+
                 if not name:
                     continue
 
@@ -221,7 +236,7 @@ class ExcelEvents(commands.Cog):
                     except:
                         pass
 
-                new_event = await self._create_event(ctx.guild, data)
+                new_event = await self._create_event(ctx.guild, data, row_num)
                 if new_event:
                     new_mappings[key] = new_event.id
                     processed += 1
@@ -237,7 +252,7 @@ class ExcelEvents(commands.Cog):
 
             await self.config.guild(ctx.guild).event_mappings.set(new_mappings)
 
-            await ctx.send(f"✅ **Sync completed!**\n• Processed: **{processed}**\n• Active now: **{len(new_mappings)}**\n• Deleted: **{deleted}**")
+            await ctx.send(f"**FINAL RESULT**\n• Processed: **{processed}**\n• Active now: **{len(new_mappings)}**\n• Deleted: **{deleted}**")
 
         except Exception as e:
             await ctx.send(f"❌ Sync failed: {type(e).__name__}: {e}")
