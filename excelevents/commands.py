@@ -18,27 +18,19 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="guide")
     async def guide(self, ctx: commands.Context):
-        """Detailed guide."""
+        """Shows a detailed guide on how to use the ExcelEvents cog."""
         embed = discord.Embed(
             title="📖 ExcelEvents - Complete Guide",
             description="Bulk create Discord Scheduled Events with refined image support.",
             color=discord.Color.blurple()
         )
-        embed.add_field(
-            name="Image Tips",
-            value="Use direct links like `https://i.imgur.com/XXXXXX.jpg`\n"
-                  "You can also attach one image to the `sync` command as fallback.",
-            inline=False
-        )
-        embed.add_field(
-            name="Quick Start",
-            value="`template` → fill data → `upload` or `paste` → `check` → `sync`",
-            inline=False
-        )
+        embed.add_field(name="Image Tips", value="Use direct links like `https://i.imgur.com/XXXXXX.jpg`\nYou can also attach one image to the `sync` command as fallback.", inline=False)
+        embed.add_field(name="Quick Start", value="`template` → fill data → `upload` or `paste` → `check` → `sync`", inline=False)
         await ctx.send(embed=embed)
 
     @cog.excelevents.command(name="template")
     async def template(self, ctx: commands.Context):
+        """Sends a ready-to-use CSV template."""
         example = (
             "name,start,end,description,type,location,channelid,image\n"
             'Game Night,2026-04-05 20:00,2026-04-05 22:00,Weekly game night,voice,,"123456789012345678",https://i.imgur.com/3eQczTs.jpg\n'
@@ -47,6 +39,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="upload")
     async def upload(self, ctx: commands.Context):
+        """Upload an .xlsx file to be used for events."""
         if not ctx.message.attachments:
             await ctx.send("❌ Please attach an `.xlsx` or `.xls` file.")
             return
@@ -67,6 +60,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
+        """Paste CSV data to create events.xlsx."""
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
@@ -110,6 +104,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="check")
     async def check(self, ctx: commands.Context):
+        """Validate the events.xlsx file before syncing."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         await ctx.send("🔍 Running validation...")
@@ -124,6 +119,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
+        """Sync the spreadsheet to Discord Scheduled Events (creates/updates/deletes + images)."""
         if not ctx.guild.me.guild_permissions.manage_events:
             await ctx.send("❌ I need the **Manage Events** permission.")
             return
@@ -148,7 +144,6 @@ def attach_commands(cog: ExcelEvents):
             headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_row]
             col_map = _get_column_indices(headers)
 
-            # Global image fallback
             global_image_bytes = None
             if ctx.message.attachments:
                 att = ctx.message.attachments[0]
@@ -188,7 +183,7 @@ def attach_commands(cog: ExcelEvents):
                 image_bytes = None
 
                 if image_url:
-                    image_bytes = await self._download_image(image_url)
+                    image_bytes = await cog._download_image(image_url)
                     if image_bytes:
                         await ctx.send(f"✅ Row {row_num}: Image loaded for **{name}**")
                     else:
@@ -219,7 +214,7 @@ def attach_commands(cog: ExcelEvents):
                 else:
                     await ctx.send(f"⚠️ Failed to create event: {name}")
 
-            # Cleanup old events
+            # Cleanup, save mappings, write IDs/URLs back, announcements (same as previous)
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
@@ -233,7 +228,7 @@ def attach_commands(cog: ExcelEvents):
             await self.config.guild(ctx.guild).event_mappings.set(new_mappings)
             await self.config.guild(ctx.guild).last_synced.set(datetime.now(timezone.utc).isoformat())
 
-            # Write Discord IDs and URLs back to spreadsheet
+            # Write IDs and URLs back
             try:
                 wb = openpyxl.load_workbook(file_path, data_only=True)
                 ws = wb.active
@@ -285,6 +280,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="status")
     async def status(self, ctx: commands.Context):
+        """Show current status of the ExcelEvents cog."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         mappings = await self.config.guild(ctx.guild).event_mappings()
@@ -296,10 +292,12 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.group(name="announcement", invoke_without_command=True)
     async def announcement_group(self, ctx: commands.Context):
+        """Manage announcement settings for new events."""
         await ctx.send_help(ctx.command)
 
     @announcement_group.command(name="toggle")
     async def toggle_announcement(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+        """Toggle or set the announcement channel."""
         config = self.config.guild(ctx.guild)
         if channel is None:
             new_mode = not await config.announcement_mode()
@@ -312,10 +310,12 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.group(name="reminder", invoke_without_command=True)
     async def reminder_group(self, ctx: commands.Context):
+        """Manage reminder settings."""
         await ctx.send_help(ctx.command)
 
     @reminder_group.command(name="toggle")
     async def toggle_reminder(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+        """Toggle or set the reminder channel."""
         config = self.config.guild(ctx.guild)
         if channel is None:
             new_mode = not await config.reminder_mode()
@@ -328,6 +328,7 @@ def attach_commands(cog: ExcelEvents):
 
     @reminder_group.command(name="times")
     async def reminder_times(self, ctx: commands.Context, *minutes: int):
+        """Set reminder times (in minutes before start)."""
         valid = [m for m in minutes if m > 0]
         if not valid:
             await ctx.send("❌ Please provide positive numbers.")
@@ -337,6 +338,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="clear")
     async def clear(self, ctx: commands.Context):
+        """Delete the events file and reset mappings."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         if file_path.exists():
@@ -346,7 +348,16 @@ def attach_commands(cog: ExcelEvents):
         else:
             await ctx.send("No file to clear.")
 
+    # Debug command for image testing
+    @cog.excelevents.command(name="testimage")
+    async def testimage(self, ctx: commands.Context, url: str):
+        """Test if a single image URL can be downloaded (debug tool)."""
+        image_bytes = await cog._download_image(url)
+        if image_bytes:
+            await ctx.send(f"✅ Image downloaded successfully! Size: **{len(image_bytes) // 1024} KB**")
+        else:
+            await ctx.send("❌ Failed to download image. Try a different direct .jpg link.")
 
-# This is called from core.py
+
 def attach_commands(cog: ExcelEvents):
     pass
