@@ -30,7 +30,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="template")
     async def template(self, ctx: commands.Context):
-        """Sends a ready-to-use CSV template."""
+        """Sends a ready-to-use CSV template with image column."""
         example = (
             "name,start,end,description,type,location,channelid,image\n"
             'Game Night,2026-04-05 20:00,2026-04-05 22:00,Weekly game night,voice,,"123456789012345678",https://i.imgur.com/3eQczTs.jpg\n'
@@ -39,7 +39,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="upload")
     async def upload(self, ctx: commands.Context):
-        """Upload an .xlsx file to be used for events."""
+        """Upload an .xlsx file containing events."""
         if not ctx.message.attachments:
             await ctx.send("❌ Please attach an `.xlsx` or `.xls` file.")
             return
@@ -60,7 +60,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
-        """Paste CSV data to create events.xlsx."""
+        """Paste CSV data to create the events file."""
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
@@ -119,7 +119,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
-        """Sync the spreadsheet to Discord Scheduled Events (creates/updates/deletes + images)."""
+        """Sync the spreadsheet → Discord Scheduled Events (create/update/delete + images)."""
         if not ctx.guild.me.guild_permissions.manage_events:
             await ctx.send("❌ I need the **Manage Events** permission.")
             return
@@ -214,7 +214,7 @@ def attach_commands(cog: ExcelEvents):
                 else:
                     await ctx.send(f"⚠️ Failed to create event: {name}")
 
-            # Cleanup, save mappings, write IDs/URLs back, announcements (same as previous)
+            # Cleanup
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
@@ -290,6 +290,31 @@ def attach_commands(cog: ExcelEvents):
             f"• Tracked events: **{len(mappings)}**"
         )
 
+    @cog.excelevents.command(name="testimage")
+    async def testimage(self, ctx: commands.Context, *, url: str):
+        """Debug tool: Test downloading a single image URL."""
+        await ctx.send(f"🔍 Testing image: `{url}`")
+
+        image_bytes = await cog._download_image(url)
+
+        if image_bytes:
+            size_kb = len(image_bytes) // 1024
+            await ctx.send(f"✅ **Success!** Downloaded **{size_kb} KB** image.")
+        else:
+            await ctx.send("❌ **Failed** to download image.")
+
+        # Extra debug info
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+            }
+            async with cog.session.get(url, headers=headers, timeout=15, allow_redirects=True) as resp:
+                await ctx.send(f"Status: **{resp.status}** | Content-Type: `{resp.headers.get('Content-Type', 'None')}`")
+        except Exception as e:
+            await ctx.send(f"Debug request failed: {type(e).__name__}")
+
+    # Other group commands (announcement, reminder, clear) with descriptions
     @cog.excelevents.group(name="announcement", invoke_without_command=True)
     async def announcement_group(self, ctx: commands.Context):
         """Manage announcement settings for new events."""
@@ -338,7 +363,7 @@ def attach_commands(cog: ExcelEvents):
 
     @cog.excelevents.command(name="clear")
     async def clear(self, ctx: commands.Context):
-        """Delete the events file and reset mappings."""
+        """Delete the events file and reset all mappings."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         if file_path.exists():
@@ -348,16 +373,7 @@ def attach_commands(cog: ExcelEvents):
         else:
             await ctx.send("No file to clear.")
 
-    # Debug command for image testing
-    @cog.excelevents.command(name="testimage")
-    async def testimage(self, ctx: commands.Context, url: str):
-        """Test if a single image URL can be downloaded (debug tool)."""
-        image_bytes = await cog._download_image(url)
-        if image_bytes:
-            await ctx.send(f"✅ Image downloaded successfully! Size: **{len(image_bytes) // 1024} KB**")
-        else:
-            await ctx.send("❌ Failed to download image. Try a different direct .jpg link.")
-
 
 def attach_commands(cog: ExcelEvents):
+    # Commands are attached via the decorator pattern in the functions above
     pass
