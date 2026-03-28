@@ -48,6 +48,7 @@ class ExcelEvents(commands.Cog):
 
     # ====================== HELPERS ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
+        """Convert Excel value or ISO string to timezone-aware UTC datetime."""
         if isinstance(value, datetime):
             return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
         if isinstance(value, str):
@@ -60,7 +61,7 @@ class ExcelEvents(commands.Cog):
         return None
 
     async def _create_event(self, guild: discord.Guild, data: Dict) -> Optional[discord.ScheduledEvent]:
-        """Create a new scheduled event (compatible with current Red/discord.py)."""
+        """Create a scheduled event with proper parameter handling."""
         name = str(data.get("Name", "Unnamed Event")).strip()
         if not name:
             return None
@@ -71,28 +72,35 @@ class ExcelEvents(commands.Cog):
 
         end_time = await self._parse_datetime(data.get("End"))
         description = str(data.get("Description", "")).strip()[:1000] or None
+
+        event_type = str(data.get("Type", "")).strip().lower()
         location = str(data.get("Location", "")).strip() or None
+        channel_id_input = data.get("ChannelID")
 
-        channel_input = data.get("Channel")
-
-        # External event (Somewhere Else)
-        if location and not channel_input:
+        # Determine event type and parameters
+        if event_type == "external" and location:
             entity_type = discord.EntityType.external
             channel = None
-            # location is passed directly (no entity_metadata)
-        else:
-            # Voice or Stage event
-            entity_type = discord.EntityType.voice
+            event_location = location
+        elif event_type == "stage":
+            entity_type = discord.EntityType.stage
+            event_location = None
             channel = None
-            if channel_input:
+            if channel_id_input:
                 try:
-                    ch_id = int(str(channel_input).strip())
-                    channel = guild.get_channel(ch_id)
-                except ValueError:
-                    for ch in guild.channels:
-                        if ch.name and ch.name.lower() == str(channel_input).lower().strip():
-                            channel = ch
-                            break
+                    channel = guild.get_channel(int(str(channel_id_input).strip()))
+                except (ValueError, TypeError):
+                    channel = None
+        else:
+            # Default to voice (includes when Type=voice or missing)
+            entity_type = discord.EntityType.voice
+            event_location = None
+            channel = None
+            if channel_id_input:
+                try:
+                    channel = guild.get_channel(int(str(channel_id_input).strip()))
+                except (ValueError, TypeError):
+                    channel = None
 
         try:
             event = await guild.create_scheduled_event(
@@ -102,7 +110,7 @@ class ExcelEvents(commands.Cog):
                 end_time=end_time,
                 entity_type=entity_type,
                 channel=channel,
-                location=location if entity_type == discord.EntityType.external else None,
+                location=event_location,
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
             await asyncio.sleep(1.5)  # Rate-limit protection
@@ -123,18 +131,21 @@ class ExcelEvents(commands.Cog):
     @excelevents.command(name="upload")
     async def upload(self, ctx: commands.Context):
         """
-        Upload a new events.xlsx file (replaces any existing file).
+        Upload a new events.xlsx file (replaces previous one).
 
-        **Copy & paste this directly into Excel** (first row = headers):
+        **Copy & paste this directly into Excel** (Row 1 = headers):
         ```csv
-        Key,Name,Description,Start,End,Location,Channel
-        weekly-meeting,Team Sync,Weekly team catch-up,2026-04-05 14:00,2026-04-05 15:00,,General Voice
-        conference,Big Conference,Annual company event,2026-05-10 09:00,2026-05-10 17:00,New York Convention Center,
+        Type,Name,Description,Start,End,Location,ChannelID
+        voice,Team Sync,Weekly team catch-up,2026-04-05 14:00,2026-04-05 15:00,,123456789012345678
+        external,Big Conference,Annual company event,2026-05-10 09:00,2026-05-10 17:00,New York Convention Center,
+        stage,Live Q&A,Live questions with the team,2026-04-12 20:00,2026-04-12 21:00,,987654321098765432
         ```
-        - `Key` = unique identifier (required)
-        - `Start` = required
-        - Use `Location` for external events ("Somewhere Else")
-        - `Channel` = voice/stage name or ID
+        **Column Guide**:
+        - `Type`: `voice`, `stage`, or `external`
+        - `Name`: Event title
+        - `Start` / `End`: Date and time (Discord shows local time to each user)
+        - `Location`: Only for `external` events
+        - `ChannelID`: Numeric Channel ID (only for voice/stage)
         """
         if not ctx.message.attachments:
             await ctx.send("Please attach an `.xlsx` file.")
@@ -150,11 +161,11 @@ class ExcelEvents(commands.Cog):
         file_path = data_path / "events.xlsx"
 
         await attachment.save(str(file_path))
-        await ctx.send(f"✅ Events sheet uploaded!\nUse `{ctx.prefix}excelevents sync` to process it.")
+        await ctx.send(f"✅ Events sheet uploaded successfully!\nUse `{ctx.prefix}excelevents sync` to process it.")
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
-        """Sync Discord events with the uploaded Excel sheet (create/update/delete)."""
+        """Sync Discord events with the uploaded Excel sheet (create / update / delete)."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
 
@@ -174,7 +185,7 @@ class ExcelEvents(commands.Cog):
             headers = [str(cell.value).strip() if cell.value is not None else "" for cell in next(ws.iter_rows(min_row=1, max_row=1))]
             header_map = {h.lower(): i for i, h in enumerate(headers) if h}
 
-            required = ["key", "name", "start"]
+            required = ["type", "name", "start"]
             missing = [col for col in required if col not in header_map]
             if missing:
                 await ctx.send(f"❌ Missing required columns: {', '.join(missing)}")
@@ -190,7 +201,7 @@ class ExcelEvents(commands.Cog):
 
                 data = {headers[i]: row[i] for i in range(min(len(headers), len(row))) if i < len(headers) and headers[i]}
 
-                key = str(data.get("Key", "")).strip()
+                key = str(data.get("Key", "")).strip() or str(data.get("Name", "")).strip()
                 if not key:
                     continue
                 active_keys.add(key)
@@ -216,7 +227,7 @@ class ExcelEvents(commands.Cog):
                 if new_event:
                     new_mappings[key] = new_event.id
 
-            # Delete events no longer in sheet
+            # Delete events no longer in the sheet
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
@@ -239,7 +250,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="list")
     async def list_events(self, ctx: commands.Context):
-        """List all events managed by this cog."""
+        """List all events currently managed by this cog."""
         mappings: Dict[str, int] = await self.config.guild(ctx.guild).event_mappings()
         if not mappings:
             await ctx.send("No events are currently managed.")
@@ -297,7 +308,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="clearfile")
     async def clearfile(self, ctx: commands.Context):
-        """Delete the uploaded events.xlsx file (mappings are untouched)."""
+        """Delete the uploaded events.xlsx file (mappings remain untouched)."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
 
@@ -308,7 +319,7 @@ class ExcelEvents(commands.Cog):
         async def do_clearfile():
             if file_path.exists():
                 file_path.unlink()
-            await ctx.send("✅ Excel file has been deleted. You can upload a new one with `excelevents upload`.")
+            await ctx.send("✅ Excel file has been deleted. Upload a new one with `excelevents upload`.")
 
         view = self.ConfirmView(ctx, "delete the Excel file", do_clearfile)
         await ctx.send("⚠️ **This will delete the events.xlsx file.** Continue?", view=view)
