@@ -17,19 +17,21 @@ class ExcelEvents(commands.Cog):
     Features:
     • Bulk upload/sync events from .xlsx (or .xls) or raw CSV
     • Forgiving date parser (Excel serial dates + many common formats)
-    • Updates existing events or creates new ones
-    • Announcement mode: posts rich embeds with Discord <t:timestamp> formatting,
-      hyperlinks to the event, location, type, and relative times
-    • Only ONE Excel file is ever kept in the cog data folder (auto-overwrite)
-    • `check` subcommand validates the Excel/CSV and gives clear error reports
-    • Interactive help with copy-paste examples
-    • Safe fallback: if editing fails, it deletes & recreates cleanly
+    • Updates existing events or creates new ones (with clear user feedback)
+    • Announcement mode: rich embeds posted to a user-set channel when events are created/updated
+    • Reminder system: automatic pre-event reminders posted to a separate user-set channel
+      (configurable times e.g. 60 min, 15 min before start)
+    • Advanced validation (`check` command) with errors + warnings
+    • Only ONE Excel file is ever kept (auto-overwrite)
+    • Full visibility: every action gives clear output so users always know the cog is working
+      and that events were set up properly (with direct links to the Discord events)
 
     **Quick Start:**
     1. `[p]excelevents upload` → attach your events.xlsx
-    2. `[p]excelevents check` → validate the file
-    3. `[p]excelevents sync`
-    4. (Optional) `[p]excelevents announcement toggle #announcements`
+    2. `[p]excelevents check` → advanced validation
+    3. `[p]excelevents sync` → creates/updates events with live feedback + links
+    4. `[p]excelevents announcement toggle #announce` → creation announcements
+    5. `[p]excelevents reminder toggle #reminders` + `[p]excelevents reminder times 60 15`
     """
 
     def __init__(self, bot: Red):
@@ -41,9 +43,21 @@ class ExcelEvents(commands.Cog):
             "event_mappings": {},       # normalized_name → event_id
             "last_synced": None,
             "announcement_mode": False,
-            "announcement_channel": None,  # channel ID
+            "announcement_channel": None,
+            "reminder_mode": False,
+            "reminder_channel": None,
+            "reminder_minutes": [60, 15],   # minutes before start
+            "reminder_sent": {},            # str(event_id) → list of reminded minutes
         }
         self.config.register_guild(**defaults_guild)
+
+        # Background reminder task (persistent across restarts)
+        self.reminder_task = None
+
+    async def cog_load(self):
+        """Start the reminder background task when the cog loads."""
+        if self.reminder_task is None or self.reminder_task.done():
+            self.reminder_task = asyncio.create_task(self._reminder_task())
 
     # ====================== FORGIVING DATE PARSER ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
@@ -113,7 +127,6 @@ class ExcelEvents(commands.Cog):
                 except Exception:
                     pass
 
-        # Voice/Stage events require a channel
         if entity_type in (discord.EntityType.voice, discord.EntityType.stage_instance) and not channel:
             return None
 
@@ -128,13 +141,13 @@ class ExcelEvents(commands.Cog):
                 location=event_location,
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
-            await asyncio.sleep(1.5)  # Rate limit friendly
+            await asyncio.sleep(1.5)
             return event
         except Exception:
             return None
 
     def _create_event_embed(self, event: discord.ScheduledEvent) -> discord.Embed:
-        """Rich announcement embed with Discord timestamps and hyperlink."""
+        """Rich announcement embed (used for creation announcements)."""
         embed = discord.Embed(
             title=event.name[:256],
             description=(event.description or "No description provided.")[:4096],
@@ -169,26 +182,63 @@ class ExcelEvents(commands.Cog):
             inline=True,
         )
 
-        embed.set_footer(text="Synced via ExcelEvents • RedBot 2026")
+        embed.set_footer(text="New Event • Synced via ExcelEvents • RedBot 2026")
         return embed
 
-    # ====================== VALIDATION ======================
-    async def _validate_excel(self, file_path: Path) -> Tuple[bool, List[str]]:
-        """Validate the Excel file and return (is_valid, list_of_error_messages)."""
+    def _create_reminder_embed(self, event: discord.ScheduledEvent, minutes: int) -> discord.Embed:
+        """Rich reminder embed posted to the reminder channel."""
+        embed = discord.Embed(
+            title=f"⏰ Event Starting Soon: {event.name}",
+            description=(event.description or "No description provided.")[:4096],
+            color=discord.Color.orange(),
+            url=event.url,
+        )
+
+        if event.start_time:
+            start_ts = int(event.start_time.timestamp())
+            embed.add_field(
+                name="Starts in",
+                value=f"**{minutes} minutes** (<t:{start_ts}:R>)",
+                inline=False,
+            )
+            embed.add_field(
+                name="Exact Time",
+                value=f"<t:{start_ts}:F>",
+                inline=True,
+            )
+
+        if event.entity_type == discord.EntityType.external:
+            loc_text = event.location or "External link"
+        else:
+            loc_text = event.channel.mention if event.channel else "Voice/Stage channel"
+        embed.add_field(name="📍 Location", value=loc_text, inline=False)
+
+        embed.add_field(
+            name="Type",
+            value=event.entity_type.name.replace("_", " ").title(),
+            inline=True,
+        )
+
+        embed.set_footer(text=f"Reminder • {minutes} min before • ExcelEvents")
+        return embed
+
+    # ====================== ADVANCED VALIDATION ======================
+    async def _validate_excel(self, file_path: Path, guild: discord.Guild) -> Tuple[List[str], List[str]]:
+        """Advanced validation: returns (errors, warnings)."""
         errors: List[str] = []
+        warnings: List[str] = []
 
         if not file_path.exists():
             errors.append("No events.xlsx file found. Use `upload` or `paste` first.")
-            return False, errors
+            return errors, warnings
 
         try:
             wb = openpyxl.load_workbook(file_path, data_only=True)
             ws = wb.active
             if ws is None:
                 errors.append("Could not read the active worksheet.")
-                return False, errors
+                return errors, warnings
 
-            # Read headers
             header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
             headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_row]
 
@@ -197,58 +247,158 @@ class ExcelEvents(commands.Cog):
             if missing:
                 errors.append(f"Missing required column(s): {', '.join(missing)}")
 
-            # Validate each data row
             row_num = 1
+            seen_names: set[str] = set()
+
             for row in ws.iter_rows(min_row=2, values_only=True):
                 row_num += 1
                 if not row or all(v is None for v in row):
                     continue
 
-                data = {headers[i]: row[i] for i in range(len(row)) if i < len(headers) and headers[i]}
+                data = {
+                    headers[i]: row[i]
+                    for i in range(len(row))
+                    if i < len(headers) and headers[i]
+                }
 
                 name = str(data.get("name", "")).strip()
                 if not name:
                     errors.append(f"Row {row_num}: Missing or empty **Name**")
                     continue
 
+                if len(name) > 100 or len(name) < 1:
+                    errors.append(f"Row {row_num}: Name must be 1-100 characters (currently {len(name)})")
+
+                key = self._normalize_key(name)
+                if key in seen_names:
+                    warnings.append(f"Row {row_num}: Duplicate event name '{name}' – only the last row will be kept")
+                seen_names.add(key)
+
+                event_type = str(data.get("type", "")).strip().lower() or "voice"
+                valid_types = {"voice", "stage", "external"}
+                if event_type not in valid_types:
+                    warnings.append(f"Row {row_num}: Unknown Type '{event_type}' – defaulting to voice")
+
                 start_val = data.get("start")
                 start_dt = await self._parse_datetime(start_val)
                 if not start_dt:
-                    errors.append(f"Row {row_num}: Invalid **Start** time `{start_val}` (use formats like `2026-05-29 08:00` or Excel date)")
+                    errors.append(f"Row {row_num}: Invalid **Start** time `{start_val}`")
+                else:
+                    now = datetime.now(timezone.utc)
+                    if start_dt < now:
+                        warnings.append(f"Row {row_num}: Start time is in the past")
 
                 end_val = data.get("end")
-                if end_val:
+                if end_val is not None and str(end_val).strip():
                     end_dt = await self._parse_datetime(end_val)
                     if not end_dt:
                         errors.append(f"Row {row_num}: Invalid **End** time `{end_val}`")
+                    elif start_dt and end_dt <= start_dt:
+                        errors.append(f"Row {row_num}: **End** time must be after **Start** time")
 
-                event_type = str(data.get("type", "")).strip().lower() or "voice"
+                desc = str(data.get("description", "")).strip()
+                if len(desc) > 1000:
+                    warnings.append(f"Row {row_num}: Description will be truncated to 1000 characters")
+
                 location = str(data.get("location", "")).strip() or None
                 channel_id_input = data.get("channelid")
 
                 if event_type == "external":
                     if not location:
-                        errors.append(f"Row {row_num}: External events require a **Location** (URL or text)")
+                        errors.append(f"Row {row_num}: External events require a **Location**")
+                    elif len(location) > 100:
+                        errors.append(f"Row {row_num}: External Location too long (max 100 chars)")
                 else:
-                    # Voice or Stage
-                    channel = None
-                    if channel_id_input:
+                    if not channel_id_input:
+                        warnings.append(f"Row {row_num}: Voice/Stage events should have a **ChannelID**")
+                    else:
                         try:
                             ch_id = int(str(channel_id_input).strip())
-                            # We can't easily check existence here without guild, so just check it's numeric
                             if ch_id <= 0:
-                                errors.append(f"Row {row_num}: Invalid **ChannelID** (must be a positive number)")
+                                errors.append(f"Row {row_num}: **ChannelID** must be positive")
+                            else:
+                                channel = guild.get_channel(ch_id)
+                                if not channel:
+                                    warnings.append(f"Row {row_num}: ChannelID {ch_id} does not exist")
+                                elif event_type == "voice" and channel.type != discord.ChannelType.voice:
+                                    warnings.append(f"Row {row_num}: ChannelID {ch_id} is not a Voice channel")
+                                elif event_type == "stage" and channel.type != discord.ChannelType.stage_voice:
+                                    warnings.append(f"Row {row_num}: ChannelID {ch_id} is not a Stage channel")
                         except ValueError:
-                            errors.append(f"Row {row_num}: **ChannelID** must be a number (Discord channel ID)")
+                            errors.append(f"Row {row_num}: **ChannelID** must be a valid number")
 
-            if not errors:
-                return True, ["✅ No errors found! The file looks good for syncing."]
-            else:
-                return False, errors
+            if not seen_names:
+                errors.append("No valid event rows found in the file.")
+
+            return errors, warnings
 
         except Exception as e:
-            errors.append(f"Failed to read Excel file: {type(e).__name__} - {e}")
-            return False, errors
+            errors.append(f"Failed to read Excel file: {type(e).__name__} – {e}")
+            return errors, warnings
+
+    # ====================== BACKGROUND REMINDER TASK ======================
+    async def _reminder_task(self):
+        """Background task that sends pre-event reminders to the configured channel."""
+        await self.bot.wait_until_ready()
+        while True:
+            try:
+                for guild in list(self.bot.guilds):
+                    config = self.config.guild(guild)
+                    if not await config.reminder_mode():
+                        continue
+
+                    ch_id = await config.reminder_channel()
+                    if not ch_id:
+                        continue
+                    channel = guild.get_channel(ch_id)
+                    if not (channel and channel.permissions_for(guild.me).send_messages):
+                        continue
+
+                    mappings = await config.event_mappings()
+                    reminder_sent_raw = await config.reminder_sent() or {}
+                    reminder_sent = {k: list(v) for k, v in reminder_sent_raw.items()}
+                    updated = False
+
+                    for event_id in mappings.values():
+                        event_id_str = str(event_id)
+                        try:
+                            event = await guild.fetch_scheduled_event(event_id)
+                            if event.status not in (discord.ScheduledEventStatus.scheduled, discord.ScheduledEventStatus.active):
+                                continue
+                            if not event.start_time:
+                                continue
+
+                            now = datetime.now(timezone.utc)
+                            minutes_until = (event.start_time - now).total_seconds() / 60.0
+                            if minutes_until <= 0:
+                                continue
+
+                            for min_before in await config.reminder_minutes():
+                                if min_before <= 0:
+                                    continue
+                                # Send if we are within a small window around the target time
+                                if abs(minutes_until - min_before) <= 7:
+                                    sent_list = reminder_sent.get(event_id_str, [])
+                                    if min_before not in sent_list:
+                                        embed = self._create_reminder_embed(event, min_before)
+                                        await channel.send(embed=embed)
+                                        if event_id_str not in reminder_sent:
+                                            reminder_sent[event_id_str] = []
+                                        reminder_sent[event_id_str].append(min_before)
+                                        updated = True
+                                        await asyncio.sleep(1.5)
+                        except discord.NotFound:
+                            continue
+                        except Exception:
+                            continue
+
+                    if updated:
+                        await config.reminder_sent.set(reminder_sent)
+
+            except Exception:
+                pass  # Prevent task from crashing
+
+            await asyncio.sleep(300)  # Check every 5 minutes
 
     # ====================== COMMANDS ======================
     @commands.group(name="excelevents", invoke_without_command=True)
@@ -263,13 +413,6 @@ class ExcelEvents(commands.Cog):
     async def upload(self, ctx: commands.Context):
         """
         Upload an events.xlsx file (auto-overwrites previous file).
-
-        **Easy copy & paste example** (paste into row 1 of Excel):
-        ```csv
-        Type,Name,Description,Start,End,Location,ChannelID
-        voice,Finding knees toes,Just look down bruh,2026-05-29 08:00,2026-05-29 09:00,,166220559225585664
-        external,Toy Story Warhammer,Shits rough with Buzz,2026-05-29 11:00,2026-05-29 11:30,https://twitch.tv/example,
-        ```
         """
         if not ctx.message.attachments:
             await ctx.send("❌ Please attach an `.xlsx` (or `.xls`) file.")
@@ -287,20 +430,13 @@ class ExcelEvents(commands.Cog):
         await attachment.save(str(file_path))
         await ctx.send(
             "✅ **File uploaded and old file replaced!**\n"
-            f"Use `{ctx.prefix}excelevents check` to validate it, then `{ctx.prefix}excelevents sync`."
+            f"Use `{ctx.prefix}excelevents check` to validate it."
         )
 
     @excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
         """
         Paste raw CSV text directly.
-
-        **Easy copy & paste example**:
-        ```csv
-        Type,Name,Description,Start,End,Location,ChannelID
-        voice,Finding knees toes,Just look down bruh,2026-05-29 08:00,2026-05-29 09:00,,166220559225585664
-        external,Toy Story Warhammer,Shits rough with Buzz,2026-05-29 11:00,2026-05-29 11:30,https://twitch.tv/example,
-        ```
         """
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
@@ -336,22 +472,28 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="check")
     async def check(self, ctx: commands.Context):
-        """Check the uploaded Excel/CSV file for errors and missing data."""
+        """Run advanced validation on the uploaded Excel/CSV file."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
 
-        await ctx.send("🔍 **Checking Excel file for issues...**")
+        await ctx.send("🔍 **Running advanced validation...**")
 
-        is_valid, messages = await self._validate_excel(file_path)
+        errors, warnings = await self._validate_excel(file_path, ctx.guild)
 
-        if is_valid:
-            await ctx.send("\n".join(messages))
-        else:
-            error_text = "\n".join([f"• {msg}" for msg in messages])
+        if errors:
+            error_text = "\n".join([f"❌ {msg}" for msg in errors])
             await ctx.send(
-                f"❌ **Found issues in the file:**\n{error_text}\n\n"
-                f"Fix the problems above, re-upload with `{ctx.prefix}excelevents upload`, then run `check` again."
+                f"**❌ Validation Failed – Fix these errors:**\n{error_text}\n\n"
+                f"After fixing, re-upload and run `{ctx.prefix}excelevents check` again."
             )
+        elif warnings:
+            warn_text = "\n".join([f"⚠️ {msg}" for msg in warnings])
+            await ctx.send(
+                f"**✅ File is valid with warnings:**\n{warn_text}\n\n"
+                f"You may proceed with `{ctx.prefix}excelevents sync`."
+            )
+        else:
+            await ctx.send("✅ **Perfect! No errors or warnings.** Ready to sync.")
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
@@ -366,11 +508,12 @@ class ExcelEvents(commands.Cog):
             await ctx.send("❌ No file found. Use `upload` or `paste` first.")
             return
 
-        # Quick pre-check
-        is_valid, messages = await self._validate_excel(file_path)
-        if not is_valid:
-            await ctx.send("⚠️ **Validation failed.** Run `excelevents check` to see the issues before syncing.")
+        errors, warnings = await self._validate_excel(file_path, ctx.guild)
+        if errors:
+            await ctx.send("⚠️ **Validation failed.** Run `excelevents check` first.")
             return
+        if warnings:
+            await ctx.send(f"⚠️ **Validation passed with warnings.**\n{chr(10).join([f'• {w}' for w in warnings])}\nContinuing...")
 
         await ctx.send("🔄 **Syncing events…** (real-time feedback below)")
 
@@ -418,7 +561,7 @@ class ExcelEvents(commands.Cog):
                 if not start_time:
                     continue
 
-                # Try update existing
+                # Try to update existing event
                 if key in mappings:
                     try:
                         event = await ctx.guild.fetch_scheduled_event(mappings[key])
@@ -430,6 +573,7 @@ class ExcelEvents(commands.Cog):
                         )
                         new_mappings[key] = event.id
                         processed += 1
+                        await ctx.send(f"✅ **Event updated:** [{name}]({event.url})")
                         continue
                     except Exception:
                         try:
@@ -438,12 +582,13 @@ class ExcelEvents(commands.Cog):
                         except Exception:
                             pass
 
-                # Create new
+                # Create new event
                 new_event = await self._create_event(ctx.guild, data)
                 if new_event:
                     new_mappings[key] = new_event.id
                     new_events_created.append(new_event)
                     processed += 1
+                    await ctx.send(f"✅ **Event created successfully:** [{new_event.name}]({new_event.url})")
 
             # Clean up removed events
             deleted = 0
@@ -461,7 +606,7 @@ class ExcelEvents(commands.Cog):
                 datetime.now(timezone.utc).isoformat()
             )
 
-            # Announcement Mode
+            # Announcement Mode (creation announcements)
             announcement_mode = await self.config.guild(ctx.guild).announcement_mode()
             announced = 0
             if announcement_mode and new_events_created:
@@ -493,13 +638,19 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="status")
     async def status(self, ctx: commands.Context):
-        """Show file status, tracked events, and announcement settings."""
+        """Show full status of the cog (file, events, announcement, and reminder settings)."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         mappings = await self.config.guild(ctx.guild).event_mappings()
+
         ann_mode = await self.config.guild(ctx.guild).announcement_mode()
         ann_ch_id = await self.config.guild(ctx.guild).announcement_channel()
         ann_ch = ctx.guild.get_channel(ann_ch_id) if ann_ch_id else None
+
+        rem_mode = await self.config.guild(ctx.guild).reminder_mode()
+        rem_ch_id = await self.config.guild(ctx.guild).reminder_channel()
+        rem_ch = ctx.guild.get_channel(rem_ch_id) if rem_ch_id else None
+        rem_times = await self.config.guild(ctx.guild).reminder_minutes()
 
         status_msg = (
             f"**ExcelEvents Status**\n"
@@ -509,20 +660,25 @@ class ExcelEvents(commands.Cog):
         )
         if ann_ch:
             status_msg += f"\n• Announcement channel: {ann_ch.mention}"
+        status_msg += (
+            f"\n• Reminder mode: **{'✅ Enabled' if rem_mode else '❌ Disabled'}**"
+            f"\n• Reminder channel: {'Set' if rem_ch else 'Not set'}"
+        )
+        if rem_ch:
+            status_msg += f" → {rem_ch.mention}"
+        status_msg += f"\n• Reminder times: **{rem_times}** minutes before start"
         await ctx.send(status_msg)
 
     @excelevents.group(name="announcement", invoke_without_command=True)
     @commands.guild_only()
     @commands.admin_or_permissions(manage_events=True)
     async def announcement_group(self, ctx: commands.Context):
-        """Toggle announcement mode and set the channel for rich embeds."""
+        """Toggle announcement mode and set the channel for new-event embeds."""
         await ctx.send_help(ctx.command)
 
     @announcement_group.command(name="toggle")
     async def toggle_announcement(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
-        """Toggle announcement mode.
-        Provide a #channel to enable and set the announcement channel.
-        Run without a channel to toggle the mode off/on."""
+        """Toggle announcement mode for new/updated events."""
         config = self.config.guild(ctx.guild)
 
         if channel is None:
@@ -536,9 +692,53 @@ class ExcelEvents(commands.Cog):
         await config.announcement_mode.set(True)
         await ctx.send(
             f"✅ **Announcement mode enabled!**\n"
-            f"Rich embeds with Discord timestamps will be posted in {channel.mention} "
-            f"when new events are created via `sync`."
+            f"Rich embeds will be posted in {channel.mention} when new events are created via `sync`."
         )
+
+    @excelevents.group(name="reminder", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.admin_or_permissions(manage_events=True)
+    async def reminder_group(self, ctx: commands.Context):
+        """Manage reminder settings (pre-event notifications in a channel)."""
+        await ctx.send_help(ctx.command)
+
+    @reminder_group.command(name="toggle")
+    async def toggle_reminder(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+        """Toggle reminder mode. Provide a channel to enable + set it."""
+        config = self.config.guild(ctx.guild)
+
+        if channel is None:
+            current = await config.reminder_mode()
+            new_mode = not current
+            await config.reminder_mode.set(new_mode)
+            await ctx.send(f"✅ Reminder mode **{'enabled' if new_mode else 'disabled'}**.")
+            return
+
+        await config.reminder_channel.set(channel.id)
+        await config.reminder_mode.set(True)
+        await ctx.send(
+            f"✅ **Reminder mode enabled!**\n"
+            f"Pre-event reminders will be automatically posted in {channel.mention} "
+            f"at the configured times before each event starts."
+        )
+
+    @reminder_group.command(name="times")
+    async def reminder_times(self, ctx: commands.Context, *minutes: int):
+        """Set reminder times in minutes before the event (example: 60 15 5)."""
+        config = self.config.guild(ctx.guild)
+
+        if not minutes:
+            current = await config.reminder_minutes()
+            await ctx.send(f"Current reminder times: **{current}** minutes before start.")
+            return
+
+        valid = [m for m in minutes if m > 0]
+        if not valid:
+            await ctx.send("❌ Please provide positive numbers (minutes before start).")
+            return
+
+        await config.reminder_minutes.set(valid)
+        await ctx.send(f"✅ Reminder times updated to: **{valid}** minutes before events.")
 
     @excelevents.command(name="clear")
     async def clear(self, ctx: commands.Context):
@@ -554,5 +754,7 @@ class ExcelEvents(commands.Cog):
             await ctx.send("No file to clear.")
 
     def cog_unload(self):
-        """Clean shutdown."""
+        """Clean shutdown – cancel reminder task."""
+        if self.reminder_task and not self.reminder_task.done():
+            self.reminder_task.cancel()
         pass
