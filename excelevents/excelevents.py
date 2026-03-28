@@ -15,15 +15,15 @@ from redbot.core.bot import Red
 
 
 class ExcelEvents(commands.Cog):
-    """Easily create and manage Discord Scheduled Events from Excel or CSV.
+    """Bulk create and manage Discord Scheduled Events from Excel or CSV.
     
     Features:
-    • Bulk upload via .xlsx or CSV paste
-    • Full cover image support (via URL or attachment)
-    • Automatic create / update / delete
+    • Upload .xlsx or paste CSV
+    • Reliable cover image support via URL (or attachment fallback)
+    • Auto create / update / delete events
     • Writes Discord Event ID + URL back into spreadsheet
-    • Announcements and reminders
-    • Very detailed `guide` command
+    • Announcement embeds + reminders
+    • Detailed guide command
     """
 
     MAX_ROWS = 500
@@ -58,9 +58,9 @@ class ExcelEvents(commands.Cog):
         if self.reminder_task and not self.reminder_task.done():
             self.reminder_task.cancel()
 
-    # ====================== IMAGE DOWNLOAD ======================
+    # ====================== HELPERS ======================
     async def _download_image(self, url: str) -> Optional[bytes]:
-        """Download image from URL safely."""
+        """Download image safely for use as event cover."""
         if not url or not str(url).startswith(("http://", "https://")):
             return None
         try:
@@ -76,7 +76,6 @@ class ExcelEvents(commands.Cog):
         except Exception:
             return None
 
-    # ====================== DATETIME PARSER ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
         if not value:
             return None
@@ -117,7 +116,6 @@ class ExcelEvents(commands.Cog):
         except Exception:
             return False
 
-    # ====================== COLUMN MAPPING ======================
     def _get_column_indices(self, headers: List[str]) -> Dict[str, int]:
         col_map = {}
         aliases = {
@@ -149,8 +147,8 @@ class ExcelEvents(commands.Cog):
             return val if val is not None else default
         return default
 
-    # ====================== EVENT CREATION / UPDATE ======================
-    async def _create_event(self, guild: discord.Guild, data: Dict, image_bytes: Optional[bytes] = None) -> Optional[discord.ScheduledEvent]:
+    # ====================== FIXED EVENT CREATION WITH IMAGE ======================
+    async def _create_event_with_image(self, guild: discord.Guild, data: Dict, image_bytes: Optional[bytes] = None) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
         if not name or len(name) > 100:
             return None
@@ -186,28 +184,38 @@ class ExcelEvents(commands.Cog):
                 pass
 
         try:
-            kwargs = {
-                "name": name,
-                "description": description,
-                "start_time": start_time,
-                "end_time": end_time,
-                "entity_type": entity_type,
-                "privacy_level": discord.PrivacyLevel.guild_only,
-            }
-            if image_bytes:
-                kwargs["image"] = image_bytes
-
+            # Step 1: Create event WITHOUT image (Discord requirement)
             if entity_type == discord.EntityType.external:
                 if not location:
                     return None
-                kwargs["location"] = location
+                event = await guild.create_scheduled_event(
+                    name=name,
+                    description=description,
+                    start_time=start_time,
+                    end_time=end_time,
+                    entity_type=entity_type,
+                    location=location,
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                )
             else:
                 if not channel:
                     return None
-                kwargs["channel"] = channel
+                event = await guild.create_scheduled_event(
+                    name=name,
+                    description=description,
+                    start_time=start_time,
+                    end_time=end_time,
+                    entity_type=entity_type,
+                    channel=channel,
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                )
 
-            event = await guild.create_scheduled_event(**kwargs)
-            await asyncio.sleep(1.8)
+            # Step 2: Apply cover image via edit (this is the correct method)
+            if image_bytes:
+                await event.edit(cover=image_bytes)
+                await asyncio.sleep(1.0)
+
+            await asyncio.sleep(1.5)  # Rate limit safety
             return event
         except Exception:
             return None
@@ -221,7 +229,7 @@ class ExcelEvents(commands.Cog):
                 "end_time": await self._parse_datetime(data.get("end")),
             }
             if image_bytes:
-                edit_kwargs["image"] = image_bytes
+                edit_kwargs["cover"] = image_bytes
             await event.edit(**edit_kwargs)
             await asyncio.sleep(1.2)
         except Exception:
@@ -393,7 +401,7 @@ class ExcelEvents(commands.Cog):
                 pass
             await asyncio.sleep(300)
 
-    # ====================== DETAILED GUIDE COMMAND ======================
+    # ====================== COMMANDS ======================
     @commands.group(name="excelevents", invoke_without_command=True)
     @commands.guild_only()
     @commands.admin_or_permissions(manage_events=True)
@@ -405,107 +413,69 @@ class ExcelEvents(commands.Cog):
     async def guide(self, ctx: commands.Context):
         """Very detailed guide on how to use the ExcelEvents cog."""
         embed = discord.Embed(
-            title="📖 ExcelEvents Cog - Complete Detailed Guide",
-            description="The easiest way to bulk create and manage Discord Scheduled Events using Excel or CSV.\n"
-                        "Now with full **cover image** support!",
+            title="📖 ExcelEvents - Complete Detailed Guide",
+            description="Bulk create Discord Scheduled Events from Excel/CSV with reliable image support.",
             color=discord.Color.blurple()
         )
 
-        embed.add_field(
-            name="1. Preparing Your Spreadsheet",
-            value=(
-                "Use these column headers (case-insensitive):\n"
-                "• `name` **(required)**\n"
-                "• `start` **(required)**\n"
-                "• `end`, `description`, `type` (voice/stage/external), `location`, `channelid`, `image`\n\n"
-                "**Date examples:** `2026-04-05 20:00`, `04/05/2026 8:00 PM`, Excel serial dates OK."
-            ),
-            inline=False
-        )
+        embed.add_field(name="1. Preparing Your Spreadsheet", value=(
+            "Recommended columns (case-insensitive):\n"
+            "• `name` (required)\n"
+            "• `start` (required)\n"
+            "• `end`, `description`, `type` (voice/stage/external), `location`, `channelid`, `image`\n\n"
+            "Date formats: `2026-04-05 20:00`, `04/05/2026 8PM`, Excel serial dates OK."
+        ), inline=False)
 
-        embed.add_field(
-            name="2. Adding Cover Images",
-            value=(
-                "Add column **`image`** (or `cover` / `banner`)\n"
-                "Put a **direct image URL** (e.g. from imgur or Discord CDN).\n"
-                "Recommended size: **880×440 px** (2:1 ratio).\n"
-                "You can also attach **one image** to the `sync` command as fallback for all events."
-            ),
-            inline=False
-        )
+        embed.add_field(name="2. Cover Images", value=(
+            "Add column **`image`** (or `cover`/`banner`)\n"
+            "Put **direct image URLs** (imgur, Discord CDN, etc.)\n"
+            "Recommended size: ~880×440 px (2:1 ratio)\n"
+            "You can also attach one image to `sync` as fallback."
+        ), inline=False)
 
-        embed.add_field(
-            name="3. Loading Your Data",
-            value=(
-                "**Upload Excel:** `,excelevents upload` + attach .xlsx file\n"
-                "**Paste CSV:** `,excelevents paste` then paste your data on new lines"
-            ),
-            inline=False
-        )
+        embed.add_field(name="3. Loading Data", value=(
+            "` ,excelevents upload` → attach .xlsx\n"
+            "` ,excelevents paste` → paste CSV data below the command"
+        ), inline=False)
 
-        embed.add_field(
-            name="4. Validation & Sync",
-            value=(
-                "` ,excelevents check` — Validates your file\n"
-                "` ,excelevents sync` — Creates/updates/deletes events + sets images\n\n"
-                "After sync, your spreadsheet gets **Discord Event ID** and **URL** columns automatically."
-            ),
-            inline=False
-        )
+        embed.add_field(name="4. Validation & Sync", value=(
+            "` ,excelevents check` → validate\n"
+            "` ,excelevents sync` → create/update/delete events + apply images\n\n"
+            "After sync, new columns `Discord Event ID` and `Discord Event URL` are added to your sheet."
+        ), inline=False)
 
-        embed.add_field(
-            name="5. Extra Features",
-            value=(
-                "**Announcements:** `,excelevents announcement toggle #channel`\n"
-                "**Reminders:** `,excelevents reminder toggle #channel`\n"
-                "                 `,excelevents reminder times 60 15 5`\n"
-                "**Template:** `,excelevents template`"
-            ),
-            inline=False
-        )
+        embed.add_field(name="5. Extra Features", value=(
+            "Announcements: `,excelevents announcement toggle #channel`\n"
+            "Reminders: `,excelevents reminder toggle #channel` + `,excelevents reminder times 60 15 5`\n"
+            "Template: `,excelevents template`"
+        ), inline=False)
 
-        embed.add_field(
-            name="6. Limits & Tips",
-            value=(
-                "• Maximum **500 events** per sync\n"
-                "• Bot requires **Manage Events** permission\n"
-                "• External events need `location`\n"
-                "• Voice/Stage events need valid `channelid`\n"
-                "• Images are downloaded fresh on every sync"
-            ),
-            inline=False
-        )
+        embed.add_field(name="6. Limits & Tips", value=(
+            "• Max 500 events\n"
+            "• Bot needs **Manage Events** permission\n"
+            "• External events need `location`\n"
+            "• Images are downloaded every sync"
+        ), inline=False)
 
-        embed.set_footer(text="ExcelEvents • Red Bot 2026 • Bulk Event Management")
+        embed.set_footer(text="ExcelEvents • Red Bot 2026")
 
         await ctx.send(embed=embed)
+        await ctx.send("💡 **Quick Start:** `template` → fill data → `upload/paste` → `check` → `sync`")
 
-        await ctx.send(
-            "💡 **Quick Start:**\n"
-            "1. `,excelevents template`\n"
-            "2. Fill your data (add image URLs!)\n"
-            "3. `,excelevents upload` or `paste`\n"
-            "4. `,excelevents check`\n"
-            "5. `,excelevents sync`\n\n"
-            "Run `,excelevents guide` anytime for this help."
-        )
-
-    # ====================== OTHER COMMANDS ======================
     @excelevents.command(name="template")
     async def template(self, ctx: commands.Context):
-        """Send a ready-to-use CSV template."""
         example = (
             "name,start,end,description,type,location,channelid,image\n"
             'Game Night,2026-04-05 20:00,2026-04-05 22:00,Weekly game night,voice,,"123456789012345678",https://i.imgur.com/example.jpg\n'
             'Community Meeting,2026-04-10 19:00,,Monthly meeting,stage,,"987654321098765432",\n'
-            'External Webinar,2026-04-15 18:00,2026-04-15 19:00,Live on YouTube,external,https://youtube.com/live/abc123,https://example.com/banner.png\n'
+            'Webinar,2026-04-15 18:00,2026-04-15 19:00,Live stream,external,https://youtube.com/live/abc,https://example.com/banner.png\n'
         )
-        await ctx.send(f"**CSV Template with image support:**\n```csv\n{example}\n```")
+        await ctx.send(f"**CSV Template with image column:**\n```csv\n{example}\n```")
 
     @excelevents.command(name="upload")
     async def upload(self, ctx: commands.Context):
         if not ctx.message.attachments:
-            await ctx.send("❌ Please attach an `.xlsx` file.")
+            await ctx.send("❌ Please attach an `.xlsx` or `.xls` file.")
             return
         attachment = ctx.message.attachments[0]
         if not attachment.filename.lower().endswith((".xlsx", ".xls")):
@@ -515,8 +485,13 @@ class ExcelEvents(commands.Cog):
         data_path: Path = data_manager.cog_data_path(self)
         data_path.mkdir(parents=True, exist_ok=True)
         file_path = data_path / "events.xlsx"
+
+        # Delete old file first
+        if file_path.exists():
+            file_path.unlink()
+
         await attachment.save(str(file_path))
-        await ctx.send("✅ File uploaded! Use `,excelevents check` to validate.")
+        await ctx.send("✅ File uploaded (old file replaced). Use `,excelevents check` to validate.")
 
     @excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
@@ -524,12 +499,16 @@ class ExcelEvents(commands.Cog):
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
         if not csv_text.strip():
-            await ctx.send("❌ Please paste CSV data after the command.")
+            await ctx.send("❌ Please paste your CSV data after the command.")
             return
 
         data_path = data_manager.cog_data_path(self)
         data_path.mkdir(parents=True, exist_ok=True)
         file_path = data_path / "events.xlsx"
+
+        # Delete old file first
+        if file_path.exists():
+            file_path.unlink()
 
         try:
             input_io = io.StringIO(csv_text.strip())
@@ -541,7 +520,7 @@ class ExcelEvents(commands.Cog):
                 return
             if len(rows) - 1 > self.MAX_ROWS:
                 rows = rows[:self.MAX_ROWS + 1]
-                await ctx.send(f"⚠️ Only first {self.MAX_ROWS} events saved (limit reached).")
+                await ctx.send(f"⚠️ Row limit reached. Only first {self.MAX_ROWS} events saved.")
 
             if rows:
                 header_len = len(rows[0])
@@ -554,7 +533,7 @@ class ExcelEvents(commands.Cog):
                 ws.append(row)
             wb.save(file_path)
 
-            await ctx.send(f"✅ CSV saved successfully! **{len(rows)-1}** events loaded.\nUse `,excelevents check`.")
+            await ctx.send(f"✅ CSV parsed and saved! **{len(rows)-1}** events loaded.\nUse `,excelevents check`.")
         except Exception as e:
             await ctx.send(f"❌ Failed to parse CSV: {type(e).__name__} – {e}")
 
@@ -562,13 +541,13 @@ class ExcelEvents(commands.Cog):
     async def check(self, ctx: commands.Context):
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
-        await ctx.send("🔍 Running validation...")
+        await ctx.send("🔍 Running advanced validation...")
         errors, warnings = await self._validate_excel(file_path, ctx.guild)
 
         if errors:
             await ctx.send("**Validation Failed:**\n" + "\n".join(f"❌ {msg}" for msg in errors))
         elif warnings:
-            await ctx.send("**✅ Valid with warnings:**\n" + "\n".join(f"⚠️ {msg}" for msg in warnings) + "\n\nYou can now run `sync`.")
+            await ctx.send("**✅ Valid with warnings:**\n" + "\n".join(f"⚠️ {msg}" for msg in warnings) + "\n\nReady for `sync`.")
         else:
             await ctx.send("✅ **Perfect!** No errors or warnings. Ready to sync.")
 
@@ -589,7 +568,7 @@ class ExcelEvents(commands.Cog):
             await ctx.send("⚠️ Validation failed. Run `check` first.")
             return
 
-        await ctx.send("🔄 Syncing events (with images)...")
+        await ctx.send("🔄 Syncing events with images...")
 
         try:
             wb = openpyxl.load_workbook(file_path, data_only=True)
@@ -598,6 +577,7 @@ class ExcelEvents(commands.Cog):
             headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_row]
             col_map = self._get_column_indices(headers)
 
+            # Global image fallback from attachment
             global_image_bytes = None
             if ctx.message.attachments:
                 att = ctx.message.attachments[0]
@@ -637,6 +617,8 @@ class ExcelEvents(commands.Cog):
                 image_bytes = None
                 if image_url.startswith(("http://", "https://")):
                     image_bytes = await self._download_image(image_url)
+                    if image_bytes is None:
+                        await ctx.send(f"⚠️ Row {row_num}: Failed to download image for **{name}**")
                 elif global_image_bytes and not image_url:
                     image_bytes = global_image_bytes
 
@@ -654,11 +636,13 @@ class ExcelEvents(commands.Cog):
                     except Exception:
                         pass
 
-                new_event = await self._create_event(ctx.guild, data, image_bytes)
+                new_event = await self._create_event_with_image(ctx.guild, data, image_bytes)
                 if new_event:
                     new_mappings[key] = new_event.id
                     new_events_created.append(new_event)
                     processed += 1
+                else:
+                    await ctx.send(f"⚠️ Failed to create event: {name}")
 
             # Cleanup old events
             deleted = 0
@@ -674,7 +658,7 @@ class ExcelEvents(commands.Cog):
             await self.config.guild(ctx.guild).event_mappings.set(new_mappings)
             await self.config.guild(ctx.guild).last_synced.set(datetime.now(timezone.utc).isoformat())
 
-            # Write IDs and URLs back to spreadsheet
+            # Write Discord IDs and URLs back to spreadsheet
             try:
                 wb = openpyxl.load_workbook(file_path, data_only=True)
                 ws = wb.active
@@ -700,7 +684,7 @@ class ExcelEvents(commands.Cog):
             except Exception:
                 pass
 
-            # Announcements
+            # Announcements for new events
             announced = 0
             if await self.config.guild(ctx.guild).announcement_mode():
                 ann_ch_id = await self.config.guild(ctx.guild).announcement_channel()
@@ -715,7 +699,7 @@ class ExcelEvents(commands.Cog):
                             except Exception:
                                 pass
 
-            result = f"**✅ Sync Complete!**\n• Processed: **{processed}**\n• Active: **{len(new_mappings)}**\n• Deleted: **{deleted}**"
+            result = f"**✅ Sync Complete**\n• Processed: **{processed}**\n• Active: **{len(new_mappings)}**\n• Deleted: **{deleted}**"
             if announced:
                 result += f"\n📢 Announced **{announced}** new events!"
             result += "\n📊 Spreadsheet updated with Discord Event IDs & URLs."
@@ -724,13 +708,17 @@ class ExcelEvents(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Sync failed: {type(e).__name__}: {e}")
 
-    # Status, Announcement, Reminder, Clear commands (unchanged from previous versions)
+    # ====================== STATUS, ANNOUNCEMENT, REMINDER, CLEAR ======================
     @excelevents.command(name="status")
     async def status(self, ctx: commands.Context):
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         mappings = await self.config.guild(ctx.guild).event_mappings()
-        await ctx.send(f"**ExcelEvents Status**\n• File exists: **{file_path.exists()}**\n• Tracked events: **{len(mappings)}**")
+        await ctx.send(
+            f"**ExcelEvents Status**\n"
+            f"• File exists: **{file_path.exists()}**\n"
+            f"• Tracked events: **{len(mappings)}**"
+        )
 
     @excelevents.group(name="announcement", invoke_without_command=True)
     async def announcement_group(self, ctx: commands.Context):
@@ -771,7 +759,7 @@ class ExcelEvents(commands.Cog):
             await ctx.send("❌ Please provide positive numbers.")
             return
         await self.config.guild(ctx.guild).reminder_minutes.set(valid)
-        await ctx.send(f"✅ Reminder times updated: **{valid}** minutes before start.")
+        await ctx.send(f"✅ Reminder times updated to: **{valid}** minutes before start.")
 
     @excelevents.command(name="clear")
     async def clear(self, ctx: commands.Context):
@@ -783,3 +771,8 @@ class ExcelEvents(commands.Cog):
             await ctx.send("✅ Events file deleted and mappings reset.")
         else:
             await ctx.send("No file to clear.")
+
+
+# Required for Red Bot
+async def setup(bot: Red):
+    await bot.add_cog(ExcelEvents(bot))
