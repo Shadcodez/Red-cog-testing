@@ -1,7 +1,7 @@
 # ExcelEvents/utils.py
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 def _normalize_key(name: str) -> str:
     return str(name).strip().lower()
