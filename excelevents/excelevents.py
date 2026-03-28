@@ -23,9 +23,13 @@ class ExcelEvents(commands.Cog):
         }
         self.config.register_guild(**defaults_guild)
 
+    # ====================== FORGIVING DATE PARSER ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
+        """Very forgiving date parser (handles Excel serial dates too)."""
         if not value:
             return None
+
+        # Excel serial date (e.g. 46170.3333)
         if isinstance(value, (int, float)):
             try:
                 base = datetime(1899, 12, 30)
@@ -33,6 +37,7 @@ class ExcelEvents(commands.Cog):
                 return dt.replace(tzinfo=timezone.utc)
             except:
                 pass
+
         value_str = str(value).strip()
         formats = [
             "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S",
@@ -74,7 +79,7 @@ class ExcelEvents(commands.Cog):
             entity_type = discord.EntityType.external
             event_location = location
         else:
-            entity_type = discord.EntityType.stage if event_type == "stage" else discord.EntityType.voice
+            entity_type = discord.EntityType.stage_instance if event_type == "stage" else discord.EntityType.voice
             if channel_id_input:
                 try:
                     ch_id = int(str(channel_id_input).strip())
@@ -105,7 +110,7 @@ class ExcelEvents(commands.Cog):
     async def excelevents(self, ctx: commands.Context):
         """Easily manage Discord Scheduled Events from Excel or pasted CSV.
 
-        Use subcommands: upload, paste, sync, list, status, clearfile
+        Type [p]excelevents <subcommand> for details.
         """
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
@@ -217,12 +222,7 @@ class ExcelEvents(commands.Cog):
                         event = await ctx.guild.fetch_scheduled_event(mappings[key])
                         start_time = await self._parse_datetime(data.get("start"))
                         end_time = await self._parse_datetime(data.get("end"))
-                        await event.edit(
-                            name=name,
-                            description=str(data.get("description", ""))[:1000] or None,
-                            start_time=start_time,
-                            end_time=end_time,
-                        )
+                        await event.edit(name=name, description=str(data.get("description", ""))[:1000] or None, start_time=start_time, end_time=end_time)
                         new_mappings[key] = event.id
                         processed += 1
                         continue
