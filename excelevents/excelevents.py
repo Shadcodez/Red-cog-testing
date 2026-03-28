@@ -3,7 +3,6 @@ import discord
 import csv
 import io
 from redbot.core import commands, Config, data_manager
-from redbot.core import tasks
 from redbot.core.bot import Red
 import openpyxl
 from datetime import datetime, timezone, timedelta
@@ -27,7 +26,7 @@ class ExcelEvents(commands.Cog):
         }
         self.config.register_guild(**defaults_guild)
 
-    # ====================== SUPER FORGIVING DATE PARSER ======================
+    # ====================== FORGIVING DATE PARSER ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
         if not value:
             return None
@@ -107,7 +106,6 @@ class ExcelEvents(commands.Cog):
     async def _post_announcement(self, guild: discord.Guild, data: Dict):
         if not await self.config.guild(guild).use_announcements():
             return
-
         channel_id = await self.config.guild(guild).announce_channel()
         if not channel_id:
             return
@@ -141,7 +139,7 @@ class ExcelEvents(commands.Cog):
         """
         Upload an events.xlsx file.
 
-        **Easy copy & paste example** (row 1):
+        **Easy copy & paste example** (paste into row 1 of Excel):
         ```csv
         Type,Name,Description,Start,End,Location,ChannelID
         voice,Finding knees toes,Just look down bruh,2026-05-29 08:00,2026-05-29 09:00,,166220559225585664
@@ -202,7 +200,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
-        """Process the file and create/update Discord events (or announcement embeds)."""
+        """Process the uploaded Excel or pasted CSV and sync Discord events."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
 
@@ -231,6 +229,8 @@ class ExcelEvents(commands.Cog):
                 data = {headers[i]: row[i] for i in range(len(row)) if i < len(headers) and headers[i]}
                 name = str(data.get("name", "")).strip()
 
+                await ctx.send(f"**Row {row_num}** → Name: `{name}` | Start: `{data.get('start')}` | ChannelID: `{data.get('channelid')}`")
+
                 if not name:
                     continue
 
@@ -253,7 +253,7 @@ class ExcelEvents(commands.Cog):
                 if new_event:
                     new_mappings[key] = new_event.id
                     processed += 1
-                    await self._post_announcement(ctx.guild, data)  # Announcement fallback
+                    await self._post_announcement(ctx.guild, data)
 
             deleted = 0
             for old_key, old_id in list(mappings.items()):
