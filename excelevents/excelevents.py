@@ -23,6 +23,7 @@ class ExcelEvents(commands.Cog):
         }
         self.config.register_guild(**defaults_guild)
 
+    # ====================== FORGIVING DATE PARSER ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
         if not value:
             return None
@@ -51,15 +52,13 @@ class ExcelEvents(commands.Cog):
     def _normalize_key(self, name: str) -> str:
         return str(name).strip().lower()
 
-    async def _create_event(self, guild: discord.Guild, data: Dict, row_num: int) -> Optional[discord.ScheduledEvent]:
+    async def _create_event(self, guild: discord.Guild, data: Dict) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
         if not name:
-            await ctx.send(f"❌ Row {row_num}: No Name")
             return None
 
         start_time = await self._parse_datetime(data.get("start"))
         if not start_time:
-            await ctx.send(f"❌ Row {row_num}: Could not parse Start time")
             return None
 
         end_time = await self._parse_datetime(data.get("end"))
@@ -81,15 +80,8 @@ class ExcelEvents(commands.Cog):
                 try:
                     ch_id = int(str(channel_id_input).strip())
                     channel = guild.get_channel(ch_id)
-                    if not channel:
-                        await ctx.send(f"❌ Row {row_num}: ChannelID `{ch_id}` not found in this server")
-                        return None
                 except:
-                    await ctx.send(f"❌ Row {row_num}: Invalid ChannelID format")
-                    return None
-            else:
-                await ctx.send(f"❌ Row {row_num}: Voice/Stage event requires a ChannelID")
-                return None
+                    pass
 
         try:
             event = await guild.create_scheduled_event(
@@ -103,13 +95,8 @@ class ExcelEvents(commands.Cog):
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
             await asyncio.sleep(1.5)
-            await ctx.send(f"✅ Row {row_num}: Successfully created '**{name}**'")
             return event
-        except discord.HTTPException as e:
-            await ctx.send(f"❌ Row {row_num}: Discord API error: {e}")
-            return None
-        except Exception as e:
-            await ctx.send(f"❌ Row {row_num}: Unexpected error: {e}")
+        except:
             return None
 
     # ====================== COMMANDS ======================
@@ -236,7 +223,7 @@ class ExcelEvents(commands.Cog):
                     except:
                         pass
 
-                new_event = await self._create_event(ctx.guild, data, row_num)
+                new_event = await self._create_event(ctx.guild, data)
                 if new_event:
                     new_mappings[key] = new_event.id
                     processed += 1
