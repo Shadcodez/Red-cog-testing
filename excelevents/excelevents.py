@@ -3,7 +3,7 @@ import csv
 import io
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple
 
 import discord
 import openpyxl
@@ -21,13 +21,15 @@ class ExcelEvents(commands.Cog):
     • Announcement mode: posts rich embeds with Discord <t:timestamp> formatting,
       hyperlinks to the event, location, type, and relative times
     • Only ONE Excel file is ever kept in the cog data folder (auto-overwrite)
+    • `check` subcommand validates the Excel/CSV and gives clear error reports
     • Interactive help with copy-paste examples
     • Safe fallback: if editing fails, it deletes & recreates cleanly
 
     **Quick Start:**
     1. `[p]excelevents upload` → attach your events.xlsx
-    2. `[p]excelevents sync`
-    3. (Optional) `[p]excelevents announcement toggle #announcements`
+    2. `[p]excelevents check` → validate the file
+    3. `[p]excelevents sync`
+    4. (Optional) `[p]excelevents announcement toggle #announcements`
     """
 
     def __init__(self, bot: Red):
@@ -137,7 +139,7 @@ class ExcelEvents(commands.Cog):
             title=event.name[:256],
             description=(event.description or "No description provided.")[:4096],
             color=discord.Color.blurple(),
-            url=event.url,  # Clickable title link to the event
+            url=event.url,
         )
 
         if event.start_time:
@@ -155,7 +157,6 @@ class ExcelEvents(commands.Cog):
                 inline=True,
             )
 
-        # Location
         if event.entity_type == discord.EntityType.external:
             loc_text = event.location or "External link"
         else:
@@ -170,6 +171,84 @@ class ExcelEvents(commands.Cog):
 
         embed.set_footer(text="Synced via ExcelEvents • RedBot 2026")
         return embed
+
+    # ====================== VALIDATION ======================
+    async def _validate_excel(self, file_path: Path) -> Tuple[bool, List[str]]:
+        """Validate the Excel file and return (is_valid, list_of_error_messages)."""
+        errors: List[str] = []
+
+        if not file_path.exists():
+            errors.append("No events.xlsx file found. Use `upload` or `paste` first.")
+            return False, errors
+
+        try:
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            ws = wb.active
+            if ws is None:
+                errors.append("Could not read the active worksheet.")
+                return False, errors
+
+            # Read headers
+            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            headers = [str(cell).strip().lower() if cell is not None else "" for cell in header_row]
+
+            required = {"name", "start"}
+            missing = [col for col in required if col not in headers]
+            if missing:
+                errors.append(f"Missing required column(s): {', '.join(missing)}")
+
+            # Validate each data row
+            row_num = 1
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                row_num += 1
+                if not row or all(v is None for v in row):
+                    continue
+
+                data = {headers[i]: row[i] for i in range(len(row)) if i < len(headers) and headers[i]}
+
+                name = str(data.get("name", "")).strip()
+                if not name:
+                    errors.append(f"Row {row_num}: Missing or empty **Name**")
+                    continue
+
+                start_val = data.get("start")
+                start_dt = await self._parse_datetime(start_val)
+                if not start_dt:
+                    errors.append(f"Row {row_num}: Invalid **Start** time `{start_val}` (use formats like `2026-05-29 08:00` or Excel date)")
+
+                end_val = data.get("end")
+                if end_val:
+                    end_dt = await self._parse_datetime(end_val)
+                    if not end_dt:
+                        errors.append(f"Row {row_num}: Invalid **End** time `{end_val}`")
+
+                event_type = str(data.get("type", "")).strip().lower() or "voice"
+                location = str(data.get("location", "")).strip() or None
+                channel_id_input = data.get("channelid")
+
+                if event_type == "external":
+                    if not location:
+                        errors.append(f"Row {row_num}: External events require a **Location** (URL or text)")
+                else:
+                    # Voice or Stage
+                    channel = None
+                    if channel_id_input:
+                        try:
+                            ch_id = int(str(channel_id_input).strip())
+                            # We can't easily check existence here without guild, so just check it's numeric
+                            if ch_id <= 0:
+                                errors.append(f"Row {row_num}: Invalid **ChannelID** (must be a positive number)")
+                        except ValueError:
+                            errors.append(f"Row {row_num}: **ChannelID** must be a number (Discord channel ID)")
+
+            if not errors:
+                return True, ["✅ No errors found! The file looks good for syncing."]
+            else:
+                return False, errors
+
+        except Exception as e:
+            errors.append(f"Failed to read Excel file: {type(e).__name__} - {e}")
+            return False, errors
 
     # ====================== COMMANDS ======================
     @commands.group(name="excelevents", invoke_without_command=True)
@@ -208,7 +287,7 @@ class ExcelEvents(commands.Cog):
         await attachment.save(str(file_path))
         await ctx.send(
             "✅ **File uploaded and old file replaced!**\n"
-            f"Use `{ctx.prefix}excelevents sync` to process it."
+            f"Use `{ctx.prefix}excelevents check` to validate it, then `{ctx.prefix}excelevents sync`."
         )
 
     @excelevents.command(name="paste")
@@ -250,10 +329,29 @@ class ExcelEvents(commands.Cog):
 
             await ctx.send(
                 "✅ **CSV converted and saved!**\n"
-                f"Use `{ctx.prefix}excelevents sync` to process it."
+                f"Use `{ctx.prefix}excelevents check` to validate it."
             )
         except Exception as e:
             await ctx.send(f"❌ Failed to parse CSV: {type(e).__name__} – {e}")
+
+    @excelevents.command(name="check")
+    async def check(self, ctx: commands.Context):
+        """Check the uploaded Excel/CSV file for errors and missing data."""
+        data_path = data_manager.cog_data_path(self)
+        file_path = data_path / "events.xlsx"
+
+        await ctx.send("🔍 **Checking Excel file for issues...**")
+
+        is_valid, messages = await self._validate_excel(file_path)
+
+        if is_valid:
+            await ctx.send("\n".join(messages))
+        else:
+            error_text = "\n".join([f"• {msg}" for msg in messages])
+            await ctx.send(
+                f"❌ **Found issues in the file:**\n{error_text}\n\n"
+                f"Fix the problems above, re-upload with `{ctx.prefix}excelevents upload`, then run `check` again."
+            )
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
@@ -266,6 +364,12 @@ class ExcelEvents(commands.Cog):
         file_path = data_path / "events.xlsx"
         if not file_path.exists():
             await ctx.send("❌ No file found. Use `upload` or `paste` first.")
+            return
+
+        # Quick pre-check
+        is_valid, messages = await self._validate_excel(file_path)
+        if not is_valid:
+            await ctx.send("⚠️ **Validation failed.** Run `excelevents check` to see the issues before syncing.")
             return
 
         await ctx.send("🔄 **Syncing events…** (real-time feedback below)")
@@ -328,14 +432,13 @@ class ExcelEvents(commands.Cog):
                         processed += 1
                         continue
                     except Exception:
-                        # Fallback: delete old event
                         try:
                             old_event = await ctx.guild.fetch_scheduled_event(mappings[key])
                             await old_event.delete()
                         except Exception:
                             pass
 
-                # Create new event
+                # Create new
                 new_event = await self._create_event(ctx.guild, data)
                 if new_event:
                     new_mappings[key] = new_event.id
@@ -429,7 +532,6 @@ class ExcelEvents(commands.Cog):
             await ctx.send(f"✅ Announcement mode **{'enabled' if new_mode else 'disabled'}**.")
             return
 
-        # Enable + set channel
         await config.announcement_channel.set(channel.id)
         await config.announcement_mode.set(True)
         await ctx.send(
