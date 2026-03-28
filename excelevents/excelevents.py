@@ -14,8 +14,14 @@ class ExcelEvents(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
-        self.config = Config.get_conf(self, identifier=9876543210987654321, force_registration=True)
-        self.config.register_guild(event_mappings={}, last_synced=None)
+        self.config = Config.get_conf(
+            self, identifier=9876543210987654321, force_registration=True
+        )
+        defaults_guild = {
+            "event_mappings": {},   # {normalized_name: discord_event_id}
+            "last_synced": None
+        }
+        self.config.register_guild(**defaults_guild)
 
     # ====================== HELPERS ======================
     async def _parse_datetime(self, value) -> Optional[datetime]:
@@ -37,12 +43,11 @@ class ExcelEvents(commands.Cog):
     async def _create_event(self, guild: discord.Guild, data: Dict, row_num: int) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
         if not name:
-            await guild.system_channel.send(f"❌ Row {row_num}: Skipped — No Name") if guild.system_channel else None
             return None
 
         start_time = await self._parse_datetime(data.get("start"))
         if not start_time:
-            print(f"[ExcelEvents] Row {row_num}: ❌ Invalid Start → '{data.get('start')}'")
+            print(f"[ExcelEvents] Row {row_num}: Invalid Start time → {data.get('start')}")
             return None
 
         end_time = await self._parse_datetime(data.get("end"))
@@ -62,22 +67,23 @@ class ExcelEvents(commands.Cog):
         elif event_type == "stage" and channel_id_input:
             entity_type = discord.EntityType.stage
             try:
-                channel = guild.get_channel(int(str(channel_id_input).strip()))
+                ch_id = int(str(channel_id_input).strip())
+                channel = guild.get_channel(ch_id)
             except:
                 pass
         else:  # voice
-            entity_type = discord.EntityType.voice
             if channel_id_input:
                 try:
-                    channel = guild.get_channel(int(str(channel_id_input).strip()))
+                    ch_id = int(str(channel_id_input).strip())
+                    channel = guild.get_channel(ch_id)
                 except:
                     pass
 
         if entity_type in (discord.EntityType.voice, discord.EntityType.stage) and not channel:
-            print(f"[ExcelEvents] Row {row_num}: ❌ Voice/Stage needs valid ChannelID")
+            print(f"[ExcelEvents] Row {row_num}: Voice/Stage event missing valid ChannelID")
             return None
         if entity_type == discord.EntityType.external and not event_location:
-            print(f"[ExcelEvents] Row {row_num}: ❌ External needs Location")
+            print(f"[ExcelEvents] Row {row_num}: External event missing Location")
             return None
 
         try:
@@ -92,10 +98,9 @@ class ExcelEvents(commands.Cog):
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
             await asyncio.sleep(1.5)
-            print(f"[ExcelEvents] Row {row_num}: ✅ Created '{name}'")
             return event
         except Exception as exc:
-            print(f"[ExcelEvents] Row {row_num}: ❌ Failed '{name}': {exc}")
+            print(f"[ExcelEvents] Row {row_num}: Failed to create '{name}': {exc}")
             return None
 
     # ====================== COMMANDS ======================
@@ -103,20 +108,57 @@ class ExcelEvents(commands.Cog):
     @commands.guild_only()
     @commands.admin_or_permissions(manage_events=True)
     async def excelevents(self, ctx: commands.Context):
+        """Manage Discord Scheduled Events from Excel or CSV."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
+    @excelevents.command(name="upload")
+    async def upload(self, ctx: commands.Context):
+        """
+        Upload an events.xlsx file.
+
+        **Recommended Excel format** (first row = headers):
+        ```csv
+        Type,Name,Description,Start,End,Location,ChannelID
+        voice,Finding knees toes,Just look down bruh,2026-05-28 08:00,2026-05-28 09:00,,26355909847822000
+        voice,toy story warhammer edition,shits rough with Buzz,2026-05-28 11:00,2026-05-28 11:30,,26355909847822000
+        ```
+        """
+        if not ctx.message.attachments:
+            await ctx.send("Please attach an `.xlsx` or `.xls` file.")
+            return
+
+        attachment = ctx.message.attachments[0]
+        if not attachment.filename.lower().endswith((".xlsx", ".xls")):
+            await ctx.send("Only `.xlsx` or `.xls` files are supported.")
+            return
+
+        data_path: Path = data_manager.cog_data_path(self)
+        data_path.mkdir(parents=True, exist_ok=True)
+        file_path = data_path / "events.xlsx"
+
+        await attachment.save(str(file_path))
+        await ctx.send(f"✅ Excel file uploaded successfully!\nUse `{ctx.prefix}excelevents sync` to process it.")
+
     @excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
-        """Paste raw CSV text directly into chat."""
+        """
+        Paste raw CSV text directly (multi-line).
+
+        Example:
+        ```csv
+        Type,Name,Description,Start,End,Location,ChannelID
+        voice,Finding knees toes,Just look down bruh,2026-05-28 08:00,2026-05-28 09:00,,26355909847822000
+        ```
+        """
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
         if not csv_text.strip():
-            await ctx.send("Paste your CSV after the command.")
+            await ctx.send("Please paste your CSV data after the command.")
             return
 
-        data_path = data_manager.cog_data_path(self)
+        data_path: Path = data_manager.cog_data_path(self)
         data_path.mkdir(parents=True, exist_ok=True)
         file_path = data_path / "events.xlsx"
 
@@ -130,27 +172,26 @@ class ExcelEvents(commands.Cog):
                 for row in rows:
                     ws.append(list(row.values()))
             wb.save(file_path)
-            await ctx.send("✅ CSV saved as Excel! Now run `excelevents sync`")
+            await ctx.send("✅ CSV pasted and saved as Excel!\nUse `excelevents sync` to process.")
         except Exception as e:
             await ctx.send(f"❌ Failed to parse CSV: {e}")
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
-        """Sync events from the uploaded/pasted file."""
+        """Sync Discord events from the uploaded Excel / pasted CSV."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
 
         if not file_path.exists():
-            await ctx.send("No file found. Use `excelevents paste` or `upload` first.")
+            await ctx.send("No events file found. Use `upload` or `paste` first.")
             return
 
-        await ctx.send("🔄 Syncing with full diagnostics...")
+        await ctx.send("🔄 Syncing events...")
 
         try:
             wb = openpyxl.load_workbook(file_path, data_only=True)
             ws = wb.active
             headers = [str(cell.value).strip().lower() if cell.value else "" for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-            print(f"[ExcelEvents] Headers found: {headers}")
 
             mappings: Dict[str, int] = await self.config.guild(ctx.guild).event_mappings()
             new_mappings = {}
@@ -167,24 +208,26 @@ class ExcelEvents(commands.Cog):
                 name = str(data.get("name", "")).strip()
 
                 if not name:
-                    await ctx.send(f"❌ Row {row_num}: Skipped — No Name")
                     continue
 
                 key = self._normalize_key(name)
                 active_keys.add(key)
 
-                print(f"[ExcelEvents] Processing row {row_num}: '{name}'")
-
-                # Update existing
+                # Update if exists
                 if key in mappings:
                     try:
                         event = await ctx.guild.fetch_scheduled_event(mappings[key])
                         start_time = await self._parse_datetime(data.get("start"))
                         end_time = await self._parse_datetime(data.get("end"))
-                        await event.edit(name=name, description=str(data.get("description", ""))[:1000] or None, start_time=start_time, end_time=end_time)
+                        await event.edit(
+                            name=name,
+                            description=str(data.get("description", ""))[:1000] or None,
+                            start_time=start_time,
+                            end_time=end_time,
+                        )
+                        await asyncio.sleep(1.5)
                         new_mappings[key] = event.id
                         processed += 1
-                        await ctx.send(f"✅ Row {row_num}: Updated '{name}'")
                         continue
                     except:
                         pass
@@ -194,34 +237,57 @@ class ExcelEvents(commands.Cog):
                 if new_event:
                     new_mappings[key] = new_event.id
                     processed += 1
-                    await ctx.send(f"✅ Row {row_num}: Created '{name}'")
 
-            # Delete old events
+            # Delete events no longer in sheet
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
                     try:
                         event = await ctx.guild.fetch_scheduled_event(old_id)
                         await event.delete()
+                        await asyncio.sleep(1.5)
                         deleted += 1
                     except:
                         pass
 
             await self.config.guild(ctx.guild).event_mappings.set(new_mappings)
 
-            await ctx.send(f"**Final Result**\n• Processed: **{processed}**\n• Active now: **{len(new_mappings)}**\n• Deleted: **{deleted}**")
+            await ctx.send(f"✅ **Sync completed!**\n• Processed: **{processed}**\n• Active now: **{len(new_mappings)}**\n• Deleted: **{deleted}**")
 
         except Exception as e:
             await ctx.send(f"❌ Sync failed: {type(e).__name__}: {e}")
 
     @excelevents.command(name="status")
     async def status(self, ctx: commands.Context):
-        """Check if the Excel file exists and how many events are tracked."""
+        """Show status of the events file and tracked mappings."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         mappings = await self.config.guild(ctx.guild).event_mappings()
-        exists = file_path.exists()
-        await ctx.send(f"**ExcelEvents Status**\n• File exists: **{exists}**\n• Tracked events: **{len(mappings)}**")
+
+        await ctx.send(
+            f"**ExcelEvents Status**\n"
+            f"• Excel file exists: **{file_path.exists()}**\n"
+            f"• Tracked events: **{len(mappings)}**"
+        )
+
+    @excelevents.command(name="clearfile")
+    async def clearfile(self, ctx: commands.Context):
+        """Delete the uploaded events.xlsx file."""
+        data_path = data_manager.cog_data_path(self)
+        file_path = data_path / "events.xlsx"
+
+        if not file_path.exists():
+            await ctx.send("No file to delete.")
+            return
+
+        file_path.unlink()
+        await ctx.send("✅ Excel file has been deleted.")
+
+    @excelevents.command(name="clear")
+    async def clear(self, ctx: commands.Context):
+        """Clear all tracked event mappings."""
+        await self.config.guild(ctx.guild).event_mappings.set({})
+        await ctx.send("✅ All event mappings cleared.")
 
     def cog_unload(self):
         pass
