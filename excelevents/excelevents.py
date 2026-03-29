@@ -215,7 +215,7 @@ class ExcelEvents(commands.Cog):
                     privacy_level=discord.PrivacyLevel.guild_only
                 )
 
-            await asyncio.sleep(3.0)  # Important delay before applying cover
+            await asyncio.sleep(3.0)
             event = await guild.fetch_scheduled_event(event.id)
 
             if image_bytes:
@@ -398,19 +398,71 @@ class ExcelEvents(commands.Cog):
     @commands.guild_only()
     @commands.admin_or_permissions(manage_events=True)
     async def excelevents(self, ctx: commands.Context):
-        """Main command group for managing bulk Discord events from Excel/CSV."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
     @excelevents.command(name="guide")
     async def guide(self, ctx: commands.Context):
-        """Shows detailed usage instructions."""
+        """Full detailed guide on how to use ExcelEvents."""
         embed = discord.Embed(
-            title="📖 ExcelEvents - Complete Guide",
-            description="Bulk create Discord Scheduled Events from Excel/CSV.",
+            title="📖 ExcelEvents — Complete Guide",
+            description="Create and manage **hundreds** of Discord Scheduled Events from one Excel/CSV file.",
             color=discord.Color.blurple()
         )
-        embed.add_field(name="Image Tips", value="Use direct links ending in `.jpg`\nYou can also attach one image to the `sync` command.", inline=False)
+        embed.add_field(
+            name="1. Get Started",
+            value="1. Use `template` to get a ready-made CSV\n"
+                  "2. Fill your events in Excel or paste CSV\n"
+                  "3. `upload` the file **or** `paste` the data\n"
+                  "4. Run `check` → then `sync`",
+            inline=False
+        )
+        embed.add_field(
+            name="2. Spreadsheet Columns (required in **bold**)",
+            value="**name** — Event title (max 100 chars)\n"
+                  "**start** — Start time (any format)\n"
+                  "end — End time\n"
+                  "description — Long description\n"
+                  "type — voice / stage / external\n"
+                  "location — For external events\n"
+                  "channelid — Voice/Stage channel ID\n"
+                  "**image** — Direct image URL (see below)",
+            inline=False
+        )
+        embed.add_field(
+            name="3. Image Support",
+            value="Put a direct `.jpg` link in the **image** column\n"
+                  "Example: `https://i.imgur.com/3eQczTs.jpg`\n"
+                  "You can also attach **one** image to the `sync` command (applies to all events).",
+            inline=False
+        )
+        embed.add_field(
+            name="4. Main Commands",
+            value="`template` — Get CSV example\n"
+                  "`upload` — Upload .xlsx file\n"
+                  "`paste` — Paste CSV text\n"
+                  "`check` — Validate file\n"
+                  "`sync` — Create/update/delete events\n"
+                  "`status` — Quick status\n"
+                  "`clear` — Delete everything",
+            inline=False
+        )
+        embed.add_field(
+            name="5. Announcements & Reminders",
+            value="`announcement toggle #channel` — Auto-post new events\n"
+                  "`reminder toggle #channel` — Send reminders\n"
+                  "`reminder times 60 15 5` — Set reminder minutes",
+            inline=False
+        )
+        embed.add_field(
+            name="6. Limits & Tips",
+            value="• Max **500** events per file\n"
+                  "• Only **one** events.xlsx is kept (old file is deleted on new upload)\n"
+                  "• Sync is rate-limit safe\n"
+                  "• Spreadsheet is automatically updated with Discord Event IDs & URLs",
+            inline=False
+        )
+        embed.set_footer(text="Type any command for more help • RedBot 2026")
         await ctx.send(embed=embed)
 
     @excelevents.command(name="template")
@@ -424,7 +476,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="upload")
     async def upload(self, ctx: commands.Context):
-        """Upload an .xlsx file to be used for events."""
+        """Upload an .xlsx file."""
         if not ctx.message.attachments:
             await ctx.send("❌ Please attach an `.xlsx` or `.xls` file.")
             return
@@ -445,7 +497,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
-        """Paste CSV data to create the events file."""
+        """Paste CSV data."""
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
@@ -489,7 +541,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="check")
     async def check(self, ctx: commands.Context):
-        """Validate the events file before syncing."""
+        """Validate the events file."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         await ctx.send("🔍 Running validation...")
@@ -504,7 +556,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
-        """Sync the spreadsheet to Discord Scheduled Events (create/update/delete + images)."""
+        """Sync the spreadsheet to Discord Scheduled Events."""
         if not ctx.guild.me.guild_permissions.manage_events:
             await ctx.send("❌ I need the **Manage Events** permission.")
             return
@@ -678,6 +730,25 @@ class ExcelEvents(commands.Cog):
     @excelevents.group(name="announcement", invoke_without_command=True)
     async def announcement_group(self, ctx: commands.Context):
         """Manage announcement settings for new events."""
+        if ctx.invoked_subcommand is None:
+            embed = discord.Embed(
+                title="Announcement Settings",
+                description="Control where new events are posted as rich embeds after you run `sync`.",
+                color=discord.Color.blurple()
+            )
+            embed.add_field(
+                name="How to add/set a channel",
+                value="`excelevents announcement toggle #channel`  → Set the channel and enable announcements\n"
+                      "`excelevents announcement toggle`          → Turn announcements on/off (keeps the current channel)",
+                inline=False
+            )
+            embed.add_field(
+                name="Note",
+                value="Only **newly created** events are announced.",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
         await ctx.send_help(ctx.command)
 
     @announcement_group.command(name="toggle")
@@ -696,6 +767,32 @@ class ExcelEvents(commands.Cog):
     @excelevents.group(name="reminder", invoke_without_command=True)
     async def reminder_group(self, ctx: commands.Context):
         """Manage reminder settings."""
+        if ctx.invoked_subcommand is None:
+            embed = discord.Embed(
+                title="Reminder Settings",
+                description="Send timed reminders before events start.",
+                color=discord.Color.orange()
+            )
+            embed.add_field(
+                name="How to use",
+                value="`excelevents reminder toggle #channel`  → Set reminder channel and enable\n"
+                      "`excelevents reminder toggle`          → Turn reminders on/off\n"
+                      "`excelevents reminder times 60 15 5`   → Set reminder minutes before start",
+                inline=False
+            )
+            embed.add_field(
+                name="Example",
+                value="`,excelevents reminder times 60 15 5`\n"
+                      "→ Bot will remind members **60, 15, and 5 minutes** before each event.",
+                inline=False
+            )
+            embed.add_field(
+                name="Note",
+                value="Reminders are sent only once per time interval per event.",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
         await ctx.send_help(ctx.command)
 
     @reminder_group.command(name="toggle")
