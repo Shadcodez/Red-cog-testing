@@ -162,7 +162,6 @@ class ExcelEvents(commands.Cog):
             return val if val is not None else default
         return default
 
-    # ====================== FINAL FIXED EVENT CREATION WITH IMAGE ======================
     async def _create_event_with_image(self, guild: discord.Guild, data: Dict, image_bytes: Optional[bytes] = None) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
         if not name or len(name) > 100:
@@ -199,7 +198,6 @@ class ExcelEvents(commands.Cog):
                 pass
 
         try:
-            # Create event
             if entity_type == discord.EntityType.external:
                 if not location:
                     return None
@@ -217,19 +215,15 @@ class ExcelEvents(commands.Cog):
                     privacy_level=discord.PrivacyLevel.guild_only
                 )
 
-            # Critical: wait and re-fetch before applying cover
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(3.0)  # Important delay before applying cover
             event = await guild.fetch_scheduled_event(event.id)
 
             if image_bytes:
                 try:
                     await event.edit(cover=image_bytes)
                     await asyncio.sleep(1.5)
-                    # User-visible success message
-                    return event
-                except Exception as e:
-                    print(f"[ExcelEvents] Cover edit failed for '{name}': {e}")
-                    return event  # event still exists, just without image
+                except Exception:
+                    pass
 
             await asyncio.sleep(1.8)
             return event
@@ -404,6 +398,7 @@ class ExcelEvents(commands.Cog):
     @commands.guild_only()
     @commands.admin_or_permissions(manage_events=True)
     async def excelevents(self, ctx: commands.Context):
+        """Main command group for managing bulk Discord events from Excel/CSV."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
@@ -415,7 +410,7 @@ class ExcelEvents(commands.Cog):
             description="Bulk create Discord Scheduled Events from Excel/CSV.",
             color=discord.Color.blurple()
         )
-        embed.add_field(name="Image Tips", value="Use direct links ending in `.jpg` (e.g. `https://i.imgur.com/XXXXXX.jpg`)\nYou can also attach one image to the `sync` command.", inline=False)
+        embed.add_field(name="Image Tips", value="Use direct links ending in `.jpg`\nYou can also attach one image to the `sync` command.", inline=False)
         await ctx.send(embed=embed)
 
     @excelevents.command(name="template")
@@ -429,7 +424,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="upload")
     async def upload(self, ctx: commands.Context):
-        """Upload an .xlsx file."""
+        """Upload an .xlsx file to be used for events."""
         if not ctx.message.attachments:
             await ctx.send("❌ Please attach an `.xlsx` or `.xls` file.")
             return
@@ -450,7 +445,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
-        """Paste CSV data."""
+        """Paste CSV data to create the events file."""
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
@@ -494,7 +489,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="check")
     async def check(self, ctx: commands.Context):
-        """Validate the events file."""
+        """Validate the events file before syncing."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         await ctx.send("🔍 Running validation...")
@@ -509,7 +504,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
-        """Sync the spreadsheet to Discord Scheduled Events."""
+        """Sync the spreadsheet to Discord Scheduled Events (create/update/delete + images)."""
         if not ctx.guild.me.guild_permissions.manage_events:
             await ctx.send("❌ I need the **Manage Events** permission.")
             return
@@ -670,6 +665,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="status")
     async def status(self, ctx: commands.Context):
+        """Show current status of the ExcelEvents cog."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         mappings = await self.config.guild(ctx.guild).event_mappings()
@@ -681,10 +677,12 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.group(name="announcement", invoke_without_command=True)
     async def announcement_group(self, ctx: commands.Context):
+        """Manage announcement settings for new events."""
         await ctx.send_help(ctx.command)
 
     @announcement_group.command(name="toggle")
     async def toggle_announcement(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+        """Toggle or set the announcement channel."""
         config = self.config.guild(ctx.guild)
         if channel is None:
             new_mode = not await config.announcement_mode()
@@ -697,10 +695,12 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.group(name="reminder", invoke_without_command=True)
     async def reminder_group(self, ctx: commands.Context):
+        """Manage reminder settings."""
         await ctx.send_help(ctx.command)
 
     @reminder_group.command(name="toggle")
     async def toggle_reminder(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
+        """Toggle or set the reminder channel."""
         config = self.config.guild(ctx.guild)
         if channel is None:
             new_mode = not await config.reminder_mode()
@@ -713,6 +713,7 @@ class ExcelEvents(commands.Cog):
 
     @reminder_group.command(name="times")
     async def reminder_times(self, ctx: commands.Context, *minutes: int):
+        """Set reminder times (in minutes before start)."""
         valid = [m for m in minutes if m > 0]
         if not valid:
             await ctx.send("❌ Please provide positive numbers.")
@@ -722,6 +723,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="clear")
     async def clear(self, ctx: commands.Context):
+        """Delete the events file and reset mappings."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         if file_path.exists():
