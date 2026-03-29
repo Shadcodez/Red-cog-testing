@@ -55,6 +55,7 @@ class ExcelEvents(commands.Cog):
 
         url = url.strip()
 
+        # Imgur fixes
         if "imgur.com" in url:
             url = url.replace(".jpeg", ".jpg").replace(".JPEG", ".jpg")
             if "i.imgur.com" not in url and "imgur.com" in url:
@@ -162,6 +163,7 @@ class ExcelEvents(commands.Cog):
             return val if val is not None else default
         return default
 
+    # ====================== EVENT CREATION WITH IMAGE (final fix) ======================
     async def _create_event_with_image(self, guild: discord.Guild, data: Dict, image_bytes: Optional[bytes] = None) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
         if not name or len(name) > 100:
@@ -198,6 +200,7 @@ class ExcelEvents(commands.Cog):
                 pass
 
         try:
+            # Create the event
             if entity_type == discord.EntityType.external:
                 if not location:
                     return None
@@ -215,12 +218,20 @@ class ExcelEvents(commands.Cog):
                     privacy_level=discord.PrivacyLevel.guild_only
                 )
 
+            # Extra delay before applying cover
+            await asyncio.sleep(2.5)
+
+            # Apply cover image
             if image_bytes:
                 try:
                     await event.edit(cover=image_bytes)
-                    await asyncio.sleep(1.2)
+                    await asyncio.sleep(1.5)
+                    # Success feedback
+                    return event
                 except Exception as e:
                     print(f"[ExcelEvents] Cover edit failed for '{name}': {e}")
+                    # Still return the event (without image)
+                    return event
 
             await asyncio.sleep(1.8)
             return event
@@ -566,7 +577,7 @@ class ExcelEvents(commands.Cog):
                 if image_url:
                     image_bytes = await self._download_image(image_url)
                     if image_bytes:
-                        await ctx.send(f"✅ Row {row_num}: Image loaded for **{name}**")
+                        await ctx.send(f"✅ Row {row_num}: Image downloaded for **{name}**")
                     else:
                         await ctx.send(f"⚠️ Row {row_num}: Image failed for **{name}** — event created without cover")
                 elif global_image_bytes:
@@ -595,7 +606,7 @@ class ExcelEvents(commands.Cog):
                 else:
                     await ctx.send(f"⚠️ Failed to create event: {name}")
 
-            # Cleanup
+            # Cleanup old events
             deleted = 0
             for old_key, old_id in list(mappings.items()):
                 if old_key not in active_keys:
