@@ -50,13 +50,12 @@ class ExcelEvents(commands.Cog):
 
     # ====================== REFINED IMAGE DOWNLOADER ======================
     async def _download_image(self, url: str) -> Optional[bytes]:
-        """Highly refined image downloader with retries and browser headers."""
         if not url or not str(url).startswith(("http://", "https://")):
             return None
 
         url = url.strip()
 
-        # Imgur auto-fix
+        # Imgur fixes
         if "imgur.com" in url:
             url = url.replace(".jpeg", ".jpg").replace(".JPEG", ".jpg")
             if "i.imgur.com" not in url and "imgur.com" in url:
@@ -164,6 +163,7 @@ class ExcelEvents(commands.Cog):
             return val if val is not None else default
         return default
 
+    # ====================== EVENT CREATION WITH IMAGE ======================
     async def _create_event_with_image(self, guild: discord.Guild, data: Dict, image_bytes: Optional[bytes] = None) -> Optional[discord.ScheduledEvent]:
         name = str(data.get("name", "")).strip()
         if not name or len(name) > 100:
@@ -220,8 +220,9 @@ class ExcelEvents(commands.Cog):
             if image_bytes:
                 try:
                     await event.edit(cover=image_bytes)
-                except Exception:
-                    pass
+                    await asyncio.sleep(1.2)
+                except Exception as e:
+                    print(f"[ExcelEvents] Cover edit failed for '{name}': {e}")
 
             await asyncio.sleep(1.8)
             return event
@@ -278,7 +279,6 @@ class ExcelEvents(commands.Cog):
         embed.set_footer(text=f"Reminder • ExcelEvents")
         return embed
 
-    # ====================== VALIDATION ======================
     async def _validate_excel(self, file_path: Path, guild: discord.Guild) -> Tuple[List[str], List[str]]:
         errors: List[str] = []
         warnings: List[str] = []
@@ -351,7 +351,6 @@ class ExcelEvents(commands.Cog):
 
         return errors, warnings
 
-    # ====================== REMINDER TASK ======================
     async def _reminder_task(self):
         await self.bot.wait_until_ready()
         while True:
@@ -398,16 +397,16 @@ class ExcelEvents(commands.Cog):
     @commands.guild_only()
     @commands.admin_or_permissions(manage_events=True)
     async def excelevents(self, ctx: commands.Context):
-        """Main command group for ExcelEvents."""
+        """Main ExcelEvents command group."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
     @excelevents.command(name="guide")
     async def guide(self, ctx: commands.Context):
-        """Shows a detailed guide on how to use the ExcelEvents cog."""
+        """Shows detailed usage instructions."""
         embed = discord.Embed(
             title="📖 ExcelEvents - Complete Guide",
-            description="Bulk create Discord Scheduled Events from Excel/CSV with image support.",
+            description="Bulk create Discord Scheduled Events from Excel/CSV.",
             color=discord.Color.blurple()
         )
         embed.add_field(name="Image Tips", value="Use direct links ending in `.jpg` (e.g. `https://i.imgur.com/XXXXXX.jpg`)\nYou can also attach one image to the `sync` command.", inline=False)
@@ -445,7 +444,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="paste")
     async def paste(self, ctx: commands.Context):
-        """Paste CSV data to create events.xlsx."""
+        """Paste CSV data."""
         lines = ctx.message.content.splitlines()
         csv_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
@@ -489,7 +488,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="check")
     async def check(self, ctx: commands.Context):
-        """Validate the events.xlsx file before syncing."""
+        """Validate the events file."""
         data_path = data_manager.cog_data_path(self)
         file_path = data_path / "events.xlsx"
         await ctx.send("🔍 Running validation...")
@@ -504,7 +503,7 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="sync")
     async def sync(self, ctx: commands.Context):
-        """Sync the spreadsheet to Discord Scheduled Events (create/update/delete + images)."""
+        """Sync the spreadsheet to Discord Scheduled Events (creates/updates/deletes + images)."""
         if not ctx.guild.me.guild_permissions.manage_events:
             await ctx.send("❌ I need the **Manage Events** permission.")
             return
@@ -613,7 +612,7 @@ class ExcelEvents(commands.Cog):
             await self.config.guild(ctx.guild).event_mappings.set(new_mappings)
             await self.config.guild(ctx.guild).last_synced.set(datetime.now(timezone.utc).isoformat())
 
-            # Write IDs and URLs back to spreadsheet
+            # Write Discord IDs and URLs back to spreadsheet
             try:
                 wb = openpyxl.load_workbook(file_path, data_only=True)
                 ws = wb.active
@@ -736,12 +735,12 @@ class ExcelEvents(commands.Cog):
     @excelevents.command(name="testimage")
     async def testimage(self, ctx: commands.Context, *, url: str):
         """Debug tool: Test downloading a single image URL."""
-        await ctx.send(f"🔍 Testing: `{url}`")
+        await ctx.send(f"🔍 Testing image: `{url}`")
         image_bytes = await self._download_image(url)
         if image_bytes:
             await ctx.send(f"✅ Success! Downloaded **{len(image_bytes)//1024} KB** image.")
         else:
-            await ctx.send("❌ Download failed. Try a different direct .jpg link.")
+            await ctx.send("❌ Download failed.")
 
 async def setup(bot: Red):
     await bot.add_cog(ExcelEvents(bot))
