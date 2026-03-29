@@ -70,19 +70,33 @@ class ExcelEvents(commands.Cog):
             "Referer": "https://imgur.com/",
         }
 
+        timeout = aiohttp.ClientTimeout(total=25)
+
         for attempt in range(2):
             try:
-                async with self.session.get(url, headers=headers, timeout=25, allow_redirects=True) as resp:
+                async with self.session.get(url, headers=headers, timeout=timeout, allow_redirects=True) as resp:
                     if resp.status != 200:
                         continue
-                    content_length = int(resp.headers.get("Content-Length", 0))
-                    if content_length > self.MAX_IMAGE_SIZE or content_length == 0:
-                        continue
+
+                    # Only reject if Content-Length is present AND too large
+                    content_length_header = resp.headers.get("Content-Length")
+                    if content_length_header is not None:
+                        try:
+                            content_length = int(content_length_header)
+                            if content_length > self.MAX_IMAGE_SIZE:
+                                continue
+                        except ValueError:
+                            pass
+
                     data = await resp.read()
+
+                    if len(data) > self.MAX_IMAGE_SIZE:
+                        continue
+
                     content_type = resp.headers.get("Content-Type", "").lower()
-                    if len(data) > 10240 and (
+                    if len(data) > 1024 and (
                         any(x in content_type for x in ("image/", "jpeg", "png", "gif", "webp")) or
-                        data.startswith((b'\xff\xd8', b'\x89PNG', b'GIF8'))
+                        data.startswith((b'\xff\xd8', b'\x89PNG', b'GIF8', b'RIFF'))
                     ):
                         return data
             except Exception:
@@ -197,35 +211,43 @@ class ExcelEvents(commands.Cog):
             except Exception:
                 pass
 
+        # Build the kwargs, including image at creation time
+        create_kwargs = {
+            "name": name,
+            "description": description,
+            "start_time": start_time,
+            "end_time": end_time,
+            "entity_type": entity_type,
+            "privacy_level": discord.PrivacyLevel.guild_only,
+        }
+
+        if image_bytes:
+            create_kwargs["image"] = image_bytes
+
         try:
             if entity_type == discord.EntityType.external:
                 if not location:
                     return None
-                event = await guild.create_scheduled_event(
-                    name=name, description=description, start_time=start_time,
-                    end_time=end_time, entity_type=entity_type, location=location,
-                    privacy_level=discord.PrivacyLevel.guild_only
-                )
+                create_kwargs["location"] = location
             else:
                 if not channel:
                     return None
-                event = await guild.create_scheduled_event(
-                    name=name, description=description, start_time=start_time,
-                    end_time=end_time, entity_type=entity_type, channel=channel,
-                    privacy_level=discord.PrivacyLevel.guild_only
-                )
+                create_kwargs["channel"] = channel
 
-            await asyncio.sleep(3.0)  # Important delay before applying cover
-            event = await guild.fetch_scheduled_event(event.id)
+            event = await guild.create_scheduled_event(**create_kwargs)
+            await asyncio.sleep(2.0)
 
+            # If image was passed at creation, verify it stuck; if not, retry via edit
             if image_bytes:
                 try:
-                    await event.edit(cover=image_bytes)
-                    await asyncio.sleep(1.5)
+                    event = await guild.fetch_scheduled_event(event.id)
+                    if not event.cover_image:
+                        await event.edit(image=image_bytes)
+                        await asyncio.sleep(1.5)
                 except Exception:
                     pass
 
-            await asyncio.sleep(1.8)
+            await asyncio.sleep(1.0)
             return event
         except Exception:
             return None
@@ -239,7 +261,7 @@ class ExcelEvents(commands.Cog):
                 "end_time": await self._parse_datetime(data.get("end")),
             }
             if image_bytes:
-                edit_kwargs["cover"] = image_bytes
+                edit_kwargs["image"] = image_bytes
             await event.edit(**edit_kwargs)
             await asyncio.sleep(1.2)
         except Exception:
@@ -520,7 +542,7 @@ class ExcelEvents(commands.Cog):
             await ctx.send("⚠️ Validation failed. Run `check` first.")
             return
 
-        await ctx.send("🔄 Syncing events with refined image support...")
+        await ctx.send("🔄 Syncing events with image support...")
 
         try:
             wb = openpyxl.load_workbook(file_path, data_only=True)
@@ -570,7 +592,7 @@ class ExcelEvents(commands.Cog):
                 if image_url:
                     image_bytes = await self._download_image(image_url)
                     if image_bytes:
-                        await ctx.send(f"✅ Row {row_num}: Image downloaded for **{name}**")
+                        await ctx.send(f"✅ Row {row_num}: Image downloaded ({len(image_bytes)//1024} KB) for **{name}**")
                     else:
                         await ctx.send(f"⚠️ Row {row_num}: Image failed for **{name}** — event created without cover")
                 elif global_image_bytes:
@@ -742,6 +764,7 @@ class ExcelEvents(commands.Cog):
             await ctx.send(f"✅ Success! Downloaded **{len(image_bytes)//1024} KB** image.")
         else:
             await ctx.send("❌ Download failed.")
+
 
 async def setup(bot: Red):
     await bot.add_cog(ExcelEvents(bot))
