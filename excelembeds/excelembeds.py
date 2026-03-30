@@ -13,7 +13,6 @@ from openpyxl.utils.exceptions import InvalidFileException
 from redbot.core import checks, commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils import bounded_gather
-from redbot.core.utils.chat import box, pagify
 
 
 class Excelembeds(commands.Cog):
@@ -36,7 +35,7 @@ class Excelembeds(commands.Cog):
             "reminder_mode": False,
             "reminder_minutes": self.DEFAULT_REMINDER_MINUTES,
             "max_rows": 50,
-            "pending_reminders": {},  # msg_id: {"event_time": iso, "users": [...], "sent": {}, "reminder_minutes": [...], "emoji": "🔔"}
+            "pending_reminders": {},
         }
         self.config.register_guild(**defaults_guild)
         self.reminder_task: Optional[asyncio.Task] = None
@@ -533,8 +532,7 @@ class Excelembeds(commands.Cog):
 
         msg = f"✅ **Success!** Sent **{rows_processed}** embed(s) to {channel.mention}."
         if errors:
-            for page in pagify("\n".join(errors), page_length=1900):
-                await ctx.send(box(page, lang="diff"))
+            msg += "\n\n**Warnings/Errors:**\n" + "\n".join(errors[:15])
         if reminders_enabled and ctx.guild.member_count > 500:
             msg += "\n\n⚠️ **Large guild warning**: DM reminders may hit rate limits."
         await ctx.send(msg)
