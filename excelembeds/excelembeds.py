@@ -16,11 +16,7 @@ from redbot.core.utils import bounded_gather
 
 
 class Excelembeds(commands.Cog):
-    """Excelembeds – Excel → Rich Embeds (2026 polished edition).
-
-    Bulk-create rich embeds with images, buttons, multiple dropdowns,
-    auto role/channel mentions, and advanced DM reminders from .xlsx files.
-    """
+    """Excelembeds – Excel → Rich Embeds (2026 polished edition)."""
 
     MAX_FILE_SIZE_MB = 5
     DEFAULT_REMINDER_MINUTES = [60, 30, 15, 5]
@@ -363,6 +359,76 @@ class Excelembeds(commands.Cog):
         """
         if ctx.invoked_subcommand is None:
             await ctx.send_help()
+
+    @excelembed.command(name="guide")
+    async def excelembed_guide(self, ctx: commands.Context):
+        """Compact guide – all headers, formatting, optional columns, and config commands."""
+        embed = discord.Embed(
+            title="Excelembeds Guide",
+            color=discord.Color.blue(),
+            description="Upload `.xlsx` → rich embeds + buttons/dropdowns + reminders.\n"
+                        "**Get started:** `[p]excelembed template`",
+        )
+
+        embed.add_field(
+            name="Core Headers",
+            value=(
+                "`title` / `description` — **at least one required**\n"
+                "`content` — text above embed (optional)\n"
+                "`color` — #hex or name (optional)\n"
+                "`url` — title hyperlink (optional)"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Media & Author",
+            value=(
+                "`image` / `thumbnail` — direct image URL (optional)\n"
+                "`author_name` / `author_url` / `author_icon` — author block (optional)\n"
+                "`footer_text` / `footer_icon` — footer (optional)"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Advanced",
+            value=(
+                "`timestamp` — date/time (optional)\n"
+                "`fields` — JSON list of `{\"name\":.., \"value\":.., \"inline\":bool}` (optional)\n"
+                "`buttons` — JSON list `{\"label\":.., \"url\":.., \"style\":primary/link, \"emoji\":.., \"row\":0}` (optional)\n"
+                "`dropdowns` — JSON list of selects `{\"placeholder\":.., \"options\":[\"A\",\"B\"], \"min_values\":1, \"max_values\":1, \"row\":0}` (optional)"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Mentions & Reminders",
+            value=(
+                "`ping_role` — role ID (auto <@&ID>)\n"
+                "`event_time` — date/time for reminders (optional)\n"
+                "`reminder_minutes` — JSON list e.g. `[60,30,15]` (overrides guild default)\n"
+                "`reminder_emoji` — custom reaction emoji (default 🔔)"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Commands",
+            value=(
+                "`create #channel [yes]` — send all rows\n"
+                "`preview #channel 5` — test row 5 only\n"
+                "`template` — download example file"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Config (`[p]excelembed config`)",
+            value=(
+                "`maxrows <number>` — set max rows per file (1-200)\n"
+                "`reminders` — toggle DM reminders on/off\n"
+                "`cleanup` — clear all pending reminders"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="One row = one embed | JSON columns must be valid JSON")
+        await ctx.send(embed=embed)
 
     @excelembed.command(name="template")
     async def excelembed_template(self, ctx: commands.Context):
