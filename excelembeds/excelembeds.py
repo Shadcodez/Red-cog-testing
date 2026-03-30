@@ -20,7 +20,6 @@ class Excelembeds(commands.Cog):
 
     Bulk-create rich embeds with images, buttons, multiple dropdowns,
     auto role/channel mentions, and advanced DM reminders from .xlsx files.
-    Features persistent components, preview, guild config, logging, and full safety.
     """
 
     MAX_FILE_SIZE_MB = 5
@@ -353,13 +352,17 @@ class Excelembeds(commands.Cog):
         except Exception:
             pass
 
-    @commands.group(name="excelembed", aliases=["xlembed"])
+    @commands.group(name="excelembed", aliases=["xlembed", "excelembeds"], invoke_without_command=True)
     @commands.guild_only()
     @checks.admin_or_permissions(manage_messages=True)
     @commands.bot_has_permissions(send_messages=True, embed_links=True)
     async def excelembed(self, ctx: commands.Context):
-        """Excelembeds – Excel to rich embeds."""
-        pass
+        """Excelembeds – Excel to rich embeds.
+
+        Type ,excelembeds by itself to see this help menu and all subcommands.
+        """
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help()
 
     @excelembed.command(name="template")
     async def excelembed_template(self, ctx: commands.Context):
