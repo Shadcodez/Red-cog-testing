@@ -426,13 +426,92 @@ class ExcelEvents(commands.Cog):
 
     @excelevents.command(name="guide")
     async def guide(self, ctx: commands.Context):
-        """Shows detailed usage instructions."""
+        """Shows a friendly, detailed getting started guide."""
         embed = discord.Embed(
-            title="📖 ExcelEvents - Complete Guide",
-            description="Bulk create Discord Scheduled Events from Excel/CSV.",
-            color=discord.Color.blurple()
+            title="🎉 Excelevents - Getting Started!",
+            description="Turn your spreadsheet into **beautiful Discord Scheduled Events** in seconds! 🚀\n\nLet me walk you through everything step-by-step:",
+            color=discord.Color.gold()
         )
-        embed.add_field(name="Image Tips", value="Use direct links ending in `.jpg`\nYou can also attach one image to the `sync` command.", inline=False)
+
+        embed.add_field(
+            name="1. Prepare Your Spreadsheet",
+            value=(
+                "**Required columns:** `name`, `start`\n"
+                "**Recommended:** `end`, `description`, `type` (voice/stage/external), `location`, `channelid`, `image`\n\n"
+                "**Supported Date/Time formats:**\n"
+                "• `2026-04-05 20:00`\n"
+                "• `04/05/2026 8:00 PM`\n"
+                "• `4/5/26 20:00`\n"
+                "• Excel date serial numbers also work!\n\n"
+                "For images: Use direct links (best with `.jpg` from Imgur) in the `image` column."
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="2. Load Your Data",
+            value=(
+                "**Excel users:** `[p]excelevents upload` + attach your `.xlsx` file\n"
+                "**CSV users:** `[p]excelevents paste` then paste your CSV data right after the command"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="3. Validate (Optional but Smart)",
+            value="`[p]excelevents check`\n\nCatches errors or warnings before you sync. Highly recommended!",
+            inline=False
+        )
+
+        embed.add_field(
+            name="4. Sync to Discord",
+            value=(
+                "`[p]excelevents sync`\n"
+                "(You can attach one image to the sync command to apply to **all** events)\n\n"
+                "The bot will:\n"
+                "• Create new events\n"
+                "• Update existing ones\n"
+                "• Delete events you removed from the spreadsheet\n"
+                "• Automatically download and attach images"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="📣 Automatic Announcements",
+            value=(
+                "Setup: `[p]excelevents announcement toggle #announce-channel`\n\n"
+                "**How it works with example:**\n"
+                "Every time you run `sync` and **new** events are created, a nice embed is automatically posted in that channel.\n"
+                "Example: If you just added \"Game Night\" and \"Movie Marathon\", both will instantly appear in #announcements so your whole server sees them right away!"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="⏰ Reminders",
+            value=(
+                "Setup:\n"
+                "1. `[p]excelevents reminder toggle #reminder-channel`\n"
+                "2. `[p]excelevents reminder times 60 15 5`\n\n"
+                "**How it works with example:**\n"
+                "If an event starts at 8:00 PM, the bot will automatically send reminders in the channel **60 minutes**, **15 minutes**, and **5 minutes** before it starts."
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="🧹 Clear Data",
+            value=(
+                "`[p]excelevents clear`\n\n"
+                "Deletes your local events file and resets all tracking.\n"
+                "**Note:** This does **not** delete any events already created on Discord."
+            ),
+            inline=False
+        )
+
+        embed.set_footer(text="💡 Pro tip: Run `[p]excelevents template` to get a ready-to-use example CSV!")
+
         await ctx.send(embed=embed)
 
     @excelevents.command(name="template")
