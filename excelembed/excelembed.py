@@ -230,6 +230,7 @@ class Excelembed(commands.Cog):
             "silent_ping_role": ["silentpingrole", "silentping", "silentmentionrole"],
             "reminder_minutes": ["reminderminutes", "reminders", "remindertimes"],
             "reminder_emoji": ["reminderemoji", "reminderreaction"],
+            "channel_id": ["channelid", "channel", "targetchannel", "targetchannelid"],
         }
         col_map: Dict[str, int] = {}
         for i, h in enumerate(headers):
@@ -501,7 +502,7 @@ class Excelembed(commands.Cog):
 
         p1 = discord.Embed(title="Excelembed Guide – Page 1/6", color=discord.Color.blue())
         p1.description = "Welcome! This cog lets anyone create beautiful Discord messages using a simple Excel file."
-        p1.add_field(name="How to Start", value="1. `,excelembed template`\n2. Fill one row = one message\n3. `,excelembed create #channel`", inline=False)
+        p1.add_field(name="How to Start", value="1. `,excelembed template`\n2. Fill one row = one message\n3. `,excelembed create #channel` (channel in command is fallback only)", inline=False)
         pages.append(p1)
 
         p2 = discord.Embed(title="Excelembed Guide – Page 2/6", color=discord.Color.blue())
@@ -519,7 +520,7 @@ class Excelembed(commands.Cog):
         p5 = discord.Embed(title="Excelembed Guide – Page 5/6", color=discord.Color.blue())
         p5.add_field(
             name="Fields – Extra info boxes",
-            value="Fields add small titled sections inside the embed.\n\n**Example 1:**\n```json\n[{\"name\":\"Event Date\",\"value\":\"April 15 at 7 PM\",\"inline\":false}]\n```\n**Example 2:**\n```json\n[{\"name\":\"Location\",\"value\":\"Discord Voice\",\"inline\":true}, {\"name\":\"Host\",\"value\":\"@Moderator\",\"inline\":true}]\n```",
+            value="**Example 1:**\n```json\n[{\"name\":\"Event Date\",\"value\":\"April 15 at 7 PM\",\"inline\":false}]\n```\n**Example 2:**\n```json\n[{\"name\":\"Location\",\"value\":\"Discord Voice\",\"inline\":true}, {\"name\":\"Host\",\"value\":\"@Moderator\",\"inline\":true}]\n```",
             inline=False,
         )
         p5.add_field(
@@ -535,7 +536,12 @@ class Excelembed(commands.Cog):
             value="**Example 1:** ```json\n[{\"placeholder\":\"Choose your role\",\"options\":[\"Member\",\"VIP\",\"Moderator\"]}]\n```\n**Example 2:** ```json\n[{\"placeholder\":\"Select interests\",\"options\":[\"Gaming\",\"Music\",\"Art\"],\"min_values\":1,\"max_values\":3}]\n```",
             inline=False,
         )
-        p6.add_field(name="Auto-Post & Config", value="`auto enable #channel` – schedule events\n`config autointerval <seconds>` – change check frequency (default 3600)", inline=False)
+        p6.add_field(
+            name="Per-Row Channel (NEW)",
+            value="Add a `channel_id` column. Put the channel ID in each row. The embed will be sent to that channel. If blank, it uses the channel you type in the command (`#channel`).",
+            inline=False,
+        )
+        p6.add_field(name="Auto-Post & Config", value="`auto enable #channel` – schedule events\n`config autointerval <seconds>` – change check frequency", inline=False)
         p6.set_footer(text="Use ◀️ ▶️ to flip pages • JSON must be valid")
         pages.append(p6)
 
@@ -544,23 +550,20 @@ class Excelembed(commands.Cog):
         await msg.add_reaction("▶️")
         self._guide_messages[msg.id] = {"pages": pages, "current": 0, "user": ctx.author.id}
 
-    # All other commands (template, preview, create, config, auto) are fully included below
-    # (They are the same as the last working version with rate-limit fixes)
-
     @excelembed.command(name="template")
     async def excelembed_template(self, ctx: commands.Context):
         """Send the ready-to-use Excel template."""
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Embed Template"
-        ws.append(["content", "title", "description", "color", "url", "image", "thumbnail", "author_name", "author_url", "author_icon", "footer_text", "footer_icon", "timestamp", "fields", "buttons", "dropdowns", "event_time", "ping_role", "silent_ping_role", "reminder_minutes", "reminder_emoji"])
-        ws.append(["Announcement!", "Community Event", "Join us! <@&123456789> in <#987654321>", "#00FF00", "https://example.com", "https://i.imgur.com/example.png", "", "Event Host", "", "https://i.imgur.com/host.png", "Powered by Excelembed", "", "2026-04-15 19:00", '[{"name":"Date","value":"April 15","inline":true}]', '[{"label":"RSVP","url":"https://example.com","emoji":"✅","style":"primary","row":0}]', '[{"placeholder":"Choose role","options":["Member","VIP"],"min_values":1,"max_values":1,"row":1}]', "2026-04-15 19:00", "123456789", "987654321098765432", "[60,30,15]", "🔔"])
-        ws.append(["← Fill rows below. One row = one embed."])
+        ws.append(["content", "title", "description", "color", "url", "image", "thumbnail", "author_name", "author_url", "author_icon", "footer_text", "footer_icon", "timestamp", "fields", "buttons", "dropdowns", "event_time", "ping_role", "silent_ping_role", "reminder_minutes", "reminder_emoji", "channel_id"])
+        ws.append(["Announcement!", "Community Event", "Join us! <@&123456789> in <#987654321>", "#00FF00", "https://example.com", "https://i.imgur.com/example.png", "", "Event Host", "", "https://i.imgur.com/host.png", "Powered by Excelembed", "", "2026-04-15 19:00", '[{"name":"Date","value":"April 15","inline":true}]', '[{"label":"RSVP","url":"https://example.com","emoji":"✅","style":"primary","row":0}]', '[{"placeholder":"Choose role","options":["Member","VIP"],"min_values":1,"max_values":1,"row":1}]', "2026-04-15 19:00", "123456789", "987654321098765432", "[60,30,15]", "🔔", "987654321098765432"])
+        ws.append(["← Fill rows below. One row = one embed. Use channel_id column for per-row channel (optional)."])
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
         file = discord.File(buffer, filename="excelembed_template.xlsx")
-        await ctx.send("**Excelembed Template** – Attach to `[p]excelembed create` or `[p]excelembed auto enable`", file=file)
+        await ctx.send("**Excelembed Template** – Attach to `[p]excelembed create`", file=file)
 
     @excelembed.command(name="preview")
     async def excelembed_preview(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None, row_number: int = 1):
@@ -616,8 +619,7 @@ class Excelembed(commands.Cog):
 
     @excelembed.command(name="create", aliases=["send"])
     async def excelembed_create(self, ctx: commands.Context, channel: discord.TextChannel, reminders: str = "no"):
-        """Import Excel and send rich embeds.
-        Use: ,excelembed create #channel yes   (yes enables reminders if event_time column exists)"""
+        """Import Excel and send rich embeds. Each row can specify its own channel_id (falls back to the command channel)."""
         if not ctx.message.attachments:
             return await ctx.send("❌ Attach an `.xlsx` file.")
 
@@ -662,6 +664,14 @@ class Excelembed(commands.Cog):
                 continue
 
             try:
+                # Per-row channel support
+                target = channel
+                ch_str = str(self._get_cell(row, col_map, "channel_id", "")).strip()
+                if ch_str.isdigit():
+                    ch = ctx.guild.get_channel(int(ch_str))
+                    if ch and isinstance(ch, discord.TextChannel):
+                        target = ch
+
                 embed = self._build_embed_from_row(row, col_map, ctx.guild)
                 if not embed:
                     errors.append(f"Row {row_idx}: Skipped (invalid embed).")
@@ -684,13 +694,13 @@ class Excelembed(commands.Cog):
                 self._apply_mentions_to_embed(embed, ctx.guild)
 
                 view = self._build_view_from_row(row, col_map)
-                await channel.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)
-                await asyncio.sleep(1.2)
+                await target.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)
+                await asyncio.sleep(1.2)  # Rate-limit safety
 
                 event_time = self._parse_datetime(self._get_cell(row, col_map, "event_time"))
                 if reminders_enabled and event_time:
                     emoji = str(self._get_cell(row, col_map, "reminder_emoji", self.DEFAULT_REMINDER_EMOJI)).strip() or self.DEFAULT_REMINDER_EMOJI
-                    message = await channel.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)  # fixed
+                    message = await target.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)
                     await message.add_reaction(emoji)
                     pending = await self.config.guild(ctx.guild).pending_reminders()
 
@@ -717,7 +727,7 @@ class Excelembed(commands.Cog):
             except Exception as exc:
                 errors.append(f"Row {row_idx}: Error – {str(exc)[:150]}")
 
-        msg = f"✅ **Success!** Sent **{rows_processed}** embed(s) to {channel.mention}."
+        msg = f"✅ **Success!** Sent **{rows_processed}** embed(s)."
         if errors:
             msg += "\n\n**Warnings/Errors:**\n" + "\n".join(errors[:15])
         if reminders_enabled and ctx.guild.member_count > 1000:
