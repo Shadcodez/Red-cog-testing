@@ -1,11 +1,10 @@
 {
-    "author": "SHADOW6six",
-    "description": "Create rich Discord embeds (with images, buttons, dropdowns, role pings, channel links, and optional DM reminders) from Excel files.",
-    "short": "Excel → Rich Embeds",
-    "tags": ["embed", "excel", "events", "reminders", "bulk"],
-    "end_user_data_statement": "Stores only reminder opt-in data (Discord user IDs) per-guild.",
+    "author": "YourName",
+    "description": "Create rich Discord embeds from Excel files with images, buttons, dropdowns, fields, role pings, reminders, and automatic scheduled posting. Rate-limit protected.",
+    "short": "Excel → Rich Embeds + Auto Scheduler",
+    "tags": ["embed", "excel", "events", "reminders", "scheduler"],
+    "end_user_data_statement": "Stores reminder opt-in data and scheduled event rows per guild.",
     "permissions": ["Manage Messages"],
-    "required_cogs": [],
     "requirements": ["openpyxl"],
-    "version": "2026.3"
+    "version": "2026.7"
 }
