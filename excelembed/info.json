@@ -1,5 +1,5 @@
 {
-    "author": "YourName",
+    "author": "SHADOW6six",
     "description": "Create rich Discord embeds from Excel files with images, buttons, dropdowns, fields, role pings, reminders, and automatic scheduled posting. Rate-limit protected.",
     "short": "Excel → Rich Embeds + Auto Scheduler",
     "tags": ["embed", "excel", "events", "reminders", "scheduler"],
