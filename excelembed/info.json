@@ -6,5 +6,5 @@
     "end_user_data_statement": "Stores reminder opt-in data and scheduled event rows per guild.",
     "permissions": ["Manage Messages"],
     "requirements": ["openpyxl"],
-    "version": "2026.7"
+    "version": "2026.2"
 }
