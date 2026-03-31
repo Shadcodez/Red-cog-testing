@@ -34,6 +34,7 @@ class Excelembeds(commands.Cog):
         }
         self.config.register_guild(**defaults_guild)
         self.reminder_task: Optional[asyncio.Task] = None
+        self._guide_messages: Dict[int, dict] = {}
 
     async def cog_load(self):
         self.reminder_task = asyncio.create_task(self._reminder_loop())
@@ -431,13 +432,9 @@ class Excelembeds(commands.Cog):
         page2.set_footer(text="JSON must be valid • Silent ping uses Discord allowed_mentions")
         pages.append(page2)
 
-        # Send first page with reactions
         msg = await ctx.send(embed=pages[0])
         await msg.add_reaction("◀️")
         await msg.add_reaction("▶️")
-
-        # Store for reaction handling (simple dict, cleared on unload if needed)
-        self._guide_messages = getattr(self, "_guide_messages", {})
         self._guide_messages[msg.id] = {"pages": pages, "current": 0, "user": ctx.author.id}
 
     @commands.Cog.listener()
@@ -456,8 +453,8 @@ class Excelembeds(commands.Cog):
                         await self.config.guild(guild).pending_reminders.set(pending)
                 return
 
-        # Guide pagination handling
-        if payload.message_id not in getattr(self, "_guide_messages", {}):
+        # Guide pagination
+        if payload.message_id not in self._guide_messages:
             return
         data = self._guide_messages[payload.message_id]
         if payload.user_id != data["user"] or str(payload.emoji) not in ("◀️", "▶️"):
@@ -505,7 +502,7 @@ class Excelembeds(commands.Cog):
             '[{"placeholder":"Choose role","options":["Member","VIP"],"min_values":1,"max_values":1,"row":1}]',
             "2026-04-15 19:00",
             "123456789",
-            "987654321098765432",   # example silent ping
+            "987654321098765432",
             '[60,30,15]',
             "🔔"
         ])
@@ -621,12 +618,10 @@ class Excelembeds(commands.Cog):
 
                 content = str(self._get_cell(row, col_map, "content", "")).strip()[:2000] or None
 
-                # Normal ping
                 ping_role_id = str(self._get_cell(row, col_map, "ping_role", "")).strip()
                 if ping_role_id.isdigit() and ctx.guild.get_role(int(ping_role_id)):
                     content = f"<@&{ping_role_id}> {content or ''}".strip()
 
-                # Silent ping (new feature)
                 silent_ping_id = str(self._get_cell(row, col_map, "silent_ping_role", "")).strip()
                 silent_ping = None
                 if silent_ping_id.isdigit() and ctx.guild.get_role(int(silent_ping_id)):
