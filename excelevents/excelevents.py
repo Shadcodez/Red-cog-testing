@@ -61,6 +61,8 @@ class Excelembeds(commands.Cog):
                 await self.config.guild_from_id(guild_id).pending_reminders.set(pending)
         self.logger.info(f"Deleted reminder data for user {user_id} (requested by {requester})")
 
+    # --- Reminder loop ---
+
     async def _reminder_loop(self):
         await self.bot.wait_until_red_ready()
         while True:
@@ -92,18 +94,24 @@ class Excelembeds(commands.Cog):
                         users = rem.get("users", [])
                         sent = rem.get("sent", {})
                         changed = False
-                        intervals = rem.get("reminder_minutes") or data.get("reminder_minutes", self.DEFAULT_REMINDER_MINUTES)
+                        intervals = rem.get("reminder_minutes") or data.get(
+                            "reminder_minutes", self.DEFAULT_REMINDER_MINUTES
+                        )
                         for interval in intervals:
                             reminder_time = event_time - timedelta(minutes=interval)
                             if now >= reminder_time and str(interval) not in sent:
                                 tasks = [
                                     self._send_dm_reminder(guild.get_member(uid), event_time, interval)
                                     for uid in users
-                                    if guild.get_member(uid) and str(uid) not in sent.get(str(interval), [])
+                                    if guild.get_member(uid)
+                                    and str(uid) not in sent.get(str(interval), [])
                                 ]
                                 if tasks and len(tasks) > 25 and guild.owner:
                                     try:
-                                        await guild.owner.send(f"⚠️ **Excelembeds rate-limit warning**: Sending {len(tasks)} DMs for message {msg_id_str}.")
+                                        await guild.owner.send(
+                                            f"⚠️ **Excelembeds rate-limit warning**: "
+                                            f"Sending {len(tasks)} DMs for message {msg_id_str}."
+                                        )
                                     except Exception:
                                         pass
                                 await bounded_gather(*tasks, return_exceptions=True)
@@ -120,19 +128,26 @@ class Excelembeds(commands.Cog):
                 self.logger.exception("Reminder loop error")
                 await asyncio.sleep(30)
 
-    async def _send_dm_reminder(self, member: Optional[discord.Member], event_time: datetime, minutes_before: int):
+    async def _send_dm_reminder(
+        self, member: Optional[discord.Member], event_time: datetime, minutes_before: int
+    ):
         if not member:
             return
         try:
             embed = discord.Embed(
                 title="🔔 Event Reminder",
-                description=f"Your event is in **{minutes_before} minutes**!\n{event_time.strftime('%A, %B %d at %I:%M %p %Z')}",
+                description=(
+                    f"Your event is in **{minutes_before} minutes**!\n"
+                    f"{event_time.strftime('%A, %B %d at %I:%M %p %Z')}"
+                ),
                 color=discord.Color.gold(),
             )
             await asyncio.wait_for(member.send(embed=embed), timeout=8)
             await asyncio.sleep(1.0)
         except Exception:
             pass
+
+    # --- Helpers ---
 
     def _normalize_key(self, name: str) -> str:
         return str(name).strip().lower().replace(" ", "").replace("_", "")
@@ -188,14 +203,24 @@ class Excelembeds(commands.Cog):
             return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
         if isinstance(value, (int, float)):
             try:
-                return (datetime(1899, 12, 30) + timedelta(days=value)).replace(tzinfo=timezone.utc)
+                return (datetime(1899, 12, 30) + timedelta(days=value)).replace(
+                    tzinfo=timezone.utc
+                )
             except Exception:
                 pass
         value_str = str(value).strip()
         if not value_str:
             return None
-        formats = ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y %H:%M:%S",
-                   "%m/%d/%y %H:%M", "%m/%d/%y %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y %H:%M"]
+        formats = [
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%m/%d/%Y %H:%M",
+            "%m/%d/%Y %H:%M:%S",
+            "%m/%d/%y %H:%M",
+            "%m/%d/%y %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S",
+            "%d/%m/%Y %H:%M",
+        ]
         for fmt in formats:
             try:
                 return datetime.strptime(value_str, fmt).replace(tzinfo=timezone.utc)
@@ -208,7 +233,9 @@ class Excelembeds(commands.Cog):
             return None
         color_str = str(color_val).strip().lower()
         try:
-            return discord.Color(int(color_str[1:], 16)) if color_str.startswith("#") else discord.Color.from_str(color_str)
+            if color_str.startswith("#"):
+                return discord.Color(int(color_str[1:], 16))
+            return discord.Color.from_str(color_str)
         except Exception:
             return None
 
@@ -217,8 +244,8 @@ class Excelembeds(commands.Cog):
             return text
 
         def replace_match(m):
-            if m.group(1):  # already a mention
-                return m.group(0)
+            if m.group(1):
+                return m.group(0)  # existing mention — leave as-is
             id_str = m.group(2)
             id_int = int(id_str)
             if guild.get_role(id_int):
@@ -227,15 +254,21 @@ class Excelembeds(commands.Cog):
                 return f"<#{id_str}>"
             return id_str
 
-        return re.sub(r"(<[@#][&!]?\d{17,19}>)|(?<!\d)(\d{17,19})(?!\d)", replace_match, text)
+        return re.sub(
+            r"(<[@#][&!]?\d{17,19}>)|(?<!\d)(\d{17,19})(?!\d)", replace_match, text
+        )
 
     def _validate_image_url(self, url: str) -> bool:
         if not url or not url.startswith(("http://", "https://")):
             return False
         clean = url.split("?")[0].split("#")[0]
-        return any(clean.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"))
+        return any(
+            clean.lower().endswith(ext)
+            for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+        )
 
     def _apply_mentions_to_embed(self, embed: discord.Embed, guild: discord.Guild) -> None:
+        """Format role/channel mentions in the embed description and fields."""
         if embed.description:
             embed.description = self._format_mentions(embed.description, guild)
         for i, field in enumerate(embed.fields):
@@ -246,14 +279,17 @@ class Excelembeds(commands.Cog):
                 inline=field.inline,
             )
 
-    def _build_embed_from_row(self, row: tuple, col_map: Dict[str, int], guild: discord.Guild) -> Optional[discord.Embed]:
+    def _build_embed_from_row(
+        self, row: tuple, col_map: Dict[str, int], guild: discord.Guild
+    ) -> Optional[discord.Embed]:
         title = str(self._get_cell(row, col_map, "title", "")).strip()[:256]
         if not title and not self._get_cell(row, col_map, "description"):
             return None
 
         embed = discord.Embed(
             title=title or None,
-            description=str(self._get_cell(row, col_map, "description", "")).strip()[:4096] or None,
+            description=str(self._get_cell(row, col_map, "description", "")).strip()[:4096]
+            or None,
             color=self._parse_color(self._get_cell(row, col_map, "color")),
             url=str(self._get_cell(row, col_map, "url", "")).strip() or None,
             timestamp=self._parse_datetime(self._get_cell(row, col_map, "timestamp")),
@@ -296,7 +332,9 @@ class Excelembeds(commands.Cog):
                 pass
         return embed
 
-    def _build_view_from_row(self, row: tuple, col_map: Dict[str, int]) -> Optional[discord.ui.View]:
+    def _build_view_from_row(
+        self, row: tuple, col_map: Dict[str, int]
+    ) -> Optional[discord.ui.View]:
         buttons_json = self._get_cell(row, col_map, "buttons")
         dropdowns_json = self._get_cell(row, col_map, "dropdowns")
 
@@ -305,7 +343,9 @@ class Excelembeds(commands.Cog):
                 super().__init__(timeout=timeout)
 
             async def _generic_callback(self, interaction: discord.Interaction):
-                await interaction.response.send_message("✅ Interaction received!", ephemeral=True)
+                await interaction.response.send_message(
+                    "✅ Interaction received!", ephemeral=True
+                )
 
         view = DynamicView(timeout=None)
 
@@ -319,7 +359,13 @@ class Excelembeds(commands.Cog):
                         label = str(btn_data.get("label", "Button"))[:80]
                         url = str(btn_data.get("url", "")).strip()
                         style_str = str(btn_data.get("style", "primary")).lower()
-                        style_map = {"primary": 1, "secondary": 2, "success": 3, "danger": 4, "link": 5}
+                        style_map = {
+                            "primary": 1,
+                            "secondary": 2,
+                            "success": 3,
+                            "danger": 4,
+                            "link": 5,
+                        }
                         style = style_map.get(style_str, 1)
                         if url:
                             style = 5
@@ -349,7 +395,10 @@ class Excelembeds(commands.Cog):
         for dd_data in dropdown_list[:5]:
             if not isinstance(dd_data, dict):
                 continue
-            options = [discord.SelectOption(label=str(opt)[:100]) for opt in dd_data.get("options", [])[:25]]
+            options = [
+                discord.SelectOption(label=str(opt)[:100])
+                for opt in dd_data.get("options", [])[:25]
+            ]
             if not options:
                 continue
             select = discord.ui.Select(
@@ -366,6 +415,8 @@ class Excelembeds(commands.Cog):
 
         return view if view.children else None
 
+    # --- Listeners ---
+
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
         if interaction.type != discord.InteractionType.component:
@@ -380,21 +431,10 @@ class Excelembeds(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Reminder handling
-        guild = self.bot.get_guild(payload.guild_id)
-        if guild and await self.config.guild(guild).reminder_mode():
-            pending = await self.config.guild(guild).pending_reminders()
-            key = str(payload.message_id)
-            if key in pending:
-                rem = pending[key]
-                emoji = rem.get("emoji", self.DEFAULT_REMINDER_EMOJI)
-                if str(payload.emoji) == emoji and payload.user_id != self.bot.user.id:
-                    if payload.user_id not in rem["users"]:
-                        rem["users"].append(payload.user_id)
-                        await self.config.guild(guild).pending_reminders.set(pending)
-                return
+        if not payload.guild_id or payload.user_id == self.bot.user.id:
+            return
 
-        # Guide pagination
+        # --- Guide pagination ---
         if payload.message_id in self._guide_messages:
             data = self._guide_messages[payload.message_id]
             if payload.user_id != data["user"] or str(payload.emoji) not in ("◀️", "▶️"):
@@ -418,7 +458,29 @@ class Excelembeds(commands.Cog):
                 pass
             return
 
-    @commands.group(name="excelembed", aliases=["xlembed", "excelembeds"], invoke_without_command=True)
+        # --- Reminder reaction sign-up ---
+        guild = self.bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+        if not await self.config.guild(guild).reminder_mode():
+            return
+        pending = await self.config.guild(guild).pending_reminders()
+        key = str(payload.message_id)
+        if key not in pending:
+            return
+        rem = pending[key]
+        emoji = rem.get("emoji", self.DEFAULT_REMINDER_EMOJI)
+        if str(payload.emoji) != emoji:
+            return
+        if payload.user_id not in rem["users"]:
+            rem["users"].append(payload.user_id)
+            await self.config.guild(guild).pending_reminders.set(pending)
+
+    # --- Commands ---
+
+    @commands.group(
+        name="excelembed", aliases=["xlembed", "excelembeds"], invoke_without_command=True
+    )
     @commands.guild_only()
     @checks.admin_or_permissions(manage_messages=True)
     @commands.bot_has_permissions(send_messages=True, embed_links=True)
@@ -436,31 +498,115 @@ class Excelembeds(commands.Cog):
         pages = []
 
         p1 = discord.Embed(title="Excelembeds Guide – Page 1/4", color=discord.Color.blue())
-        p1.description = "One row = one embed. Upload .xlsx file.\nTemplate: `[p]excelembed template`"
-        p1.add_field(name="Core Headers", value="`title` / `description` — **at least one required**\n`content` — text above embed (optional)\n`color` — #hex or name (optional)\n`url` — title hyperlink (optional)", inline=False)
-        p1.add_field(name="Media & Author", value="`image` / `thumbnail` — direct image URL (optional)\n`author_name` / `author_url` / `author_icon` — author block (optional)\n`footer_text` / `footer_icon` — footer (optional)", inline=False)
+        p1.description = (
+            "One row = one embed. Upload .xlsx file.\nTemplate: `[p]excelembed template`"
+        )
+        p1.add_field(
+            name="Core Headers",
+            value=(
+                "`title` / `description` — **at least one required**\n"
+                "`content` — text above embed (optional)\n"
+                "`color` — #hex or name (optional)\n"
+                "`url` — title hyperlink (optional)"
+            ),
+            inline=False,
+        )
+        p1.add_field(
+            name="Media & Author",
+            value=(
+                "`image` / `thumbnail` — direct image URL (optional)\n"
+                "`author_name` / `author_url` / `author_icon` — author block (optional)\n"
+                "`footer_text` / `footer_icon` — footer (optional)"
+            ),
+            inline=False,
+        )
         pages.append(p1)
 
         p2 = discord.Embed(title="Excelembeds Guide – Page 2/4", color=discord.Color.blue())
-        p2.add_field(name="Advanced", value="**timestamp** — embed timestamp\n**fields** — JSON array\n**buttons** — JSON array\n**dropdowns** — JSON array of selects", inline=False)
-        p2.add_field(name="Examples", value="```json\ntimestamp: 2026-04-15 19:00\nfields: [{\"name\":\"Date\",\"value\":\"April 15\",\"inline\":true}]\nbuttons: [{\"label\":\"RSVP\",\"url\":\"https://example.com\",\"emoji\":\"✅\",\"style\":\"primary\",\"row\":0}]\ndropdowns: [{\"placeholder\":\"Choose role\",\"options\":[\"Member\",\"VIP\"],\"min_values\":1,\"max_values\":1,\"row\":1}]\n```", inline=False)
+        p2.add_field(
+            name="Advanced",
+            value=(
+                "**timestamp** — embed timestamp\n"
+                "**fields** — JSON array\n"
+                "**buttons** — JSON array\n"
+                "**dropdowns** — JSON array of selects"
+            ),
+            inline=False,
+        )
+        p2.add_field(
+            name="Examples",
+            value=(
+                "```json\n"
+                "timestamp: 2026-04-15 19:00\n"
+                'fields: [{"name":"Date","value":"April 15","inline":true}]\n'
+                'buttons: [{"label":"RSVP","url":"https://example.com",'
+                '"emoji":"✅","style":"primary","row":0}]\n'
+                'dropdowns: [{"placeholder":"Choose role",'
+                '"options":["Member","VIP"],"min_values":1,"max_values":1,"row":1}]\n'
+                "```"
+            ),
+            inline=False,
+        )
         pages.append(p2)
 
         p3 = discord.Embed(title="Excelembeds Guide – Page 3/4", color=discord.Color.blue())
-        p3.add_field(name="Mentions & Reminders", value="`ping_role` — normal ping\n`silent_ping_role` — silent ping\n`event_time` — required for reminders\n`reminder_minutes` — JSON list\n`reminder_emoji` — custom emoji", inline=False)
-        p3.add_field(name="Examples", value="```json\nping_role: 123456789012345678\nsilent_ping_role: 123456789012345678\nevent_time: 2026-04-15 19:00\nreminder_minutes: [60,30,15]\nreminder_emoji: 🔥\n```", inline=False)
+        p3.add_field(
+            name="Mentions & Reminders",
+            value=(
+                "`ping_role` — normal ping\n"
+                "`silent_ping_role` — silent ping\n"
+                "`event_time` — required for reminders\n"
+                "`reminder_minutes` — JSON list\n"
+                "`reminder_emoji` — custom emoji"
+            ),
+            inline=False,
+        )
+        p3.add_field(
+            name="Examples",
+            value=(
+                "```json\n"
+                "ping_role: 123456789012345678\n"
+                "silent_ping_role: 123456789012345678\n"
+                "event_time: 2026-04-15 19:00\n"
+                "reminder_minutes: [60,30,15]\n"
+                "reminder_emoji: 🔥\n"
+                "```"
+            ),
+            inline=False,
+        )
         pages.append(p3)
 
         p4 = discord.Embed(title="Excelembeds Guide – Page 4/4", color=discord.Color.blue())
-        p4.add_field(name="Commands", value="`create #channel [yes/no]` — send all rows (yes = enable reminders)\n`preview #channel 3` — test only row 3\n`template` — download example file\n`guide` — this help", inline=False)
-        p4.add_field(name="Config Commands", value="`[p]excelembed config maxrows <number>` — set max rows (1-200)\n`[p]excelembed config reminders` — toggle DM reminders\n`[p]excelembed config cleanup` — clear all pending reminders", inline=False)
+        p4.add_field(
+            name="Commands",
+            value=(
+                "`create #channel [yes/no]` — send all rows (yes = enable reminders)\n"
+                "`preview #channel 3` — test only row 3\n"
+                "`template` — download example file\n"
+                "`guide` — this help"
+            ),
+            inline=False,
+        )
+        p4.add_field(
+            name="Config Commands",
+            value=(
+                "`[p]excelembed config maxrows <number>` — set max rows (1-200)\n"
+                "`[p]excelembed config reminders` — toggle DM reminders\n"
+                "`[p]excelembed config cleanup` — clear all pending reminders"
+            ),
+            inline=False,
+        )
         p4.set_footer(text="JSON must be valid • Use reactions ◀️ ▶️ to navigate")
         pages.append(p4)
 
         msg = await ctx.send(embed=pages[0])
         await msg.add_reaction("◀️")
         await msg.add_reaction("▶️")
-        self._guide_messages[msg.id] = {"pages": pages, "current": 0, "user": ctx.author.id}
+        self._guide_messages[msg.id] = {
+            "pages": pages,
+            "current": 0,
+            "user": ctx.author.id,
+        }
 
     @excelembed.command(name="template")
     async def excelembed_template(self, ctx: commands.Context):
@@ -472,7 +618,7 @@ class Excelembeds(commands.Cog):
             "content", "title", "description", "color", "url", "image", "thumbnail",
             "author_name", "author_url", "author_icon", "footer_text", "footer_icon",
             "timestamp", "fields", "buttons", "dropdowns", "event_time", "ping_role",
-            "silent_ping_role", "reminder_minutes", "reminder_emoji"
+            "silent_ping_role", "reminder_minutes", "reminder_emoji",
         ])
         ws.append([
             "Announcement!", "Community Event",
@@ -483,23 +629,35 @@ class Excelembeds(commands.Cog):
             "2026-04-15 19:00",
             '[{"name":"Date","value":"April 15","inline":true}]',
             '[{"label":"RSVP","url":"https://example.com","emoji":"✅","style":"primary","row":0}]',
-            '[{"placeholder":"Choose role","options":["Member","VIP"],"min_values":1,"max_values":1,"row":1}]',
+            '[{"placeholder":"Choose role","options":["Member","VIP"],'
+            '"min_values":1,"max_values":1,"row":1}]',
             "2026-04-15 19:00",
             "123456789",
             "987654321098765432",
             "[60,30,15]",
-            "🔔"
+            "🔔",
         ])
         ws.append(["← Fill rows below. One row = one embed."])
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
         file = discord.File(buffer, filename="excelembed_template.xlsx")
-        await ctx.send("**Excelembeds Template** – Attach to `[p]excelembed create` or `[p]excelembed preview`", file=file)
+        await ctx.send(
+            "**Excelembeds Template** – Attach to `[p]excelembed create` or `[p]excelembed preview`",
+            file=file,
+        )
 
     @excelembed.command(name="preview")
-    async def excelembed_preview(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None, row_number: int = 1):
-        """Preview a single row from the attached Excel file (no reminders)."""
+    async def excelembed_preview(
+        self,
+        ctx: commands.Context,
+        channel: Optional[discord.TextChannel] = None,
+        row_number: int = 1,
+    ):
+        """Preview a single row from the attached Excel file (no reminders).
+
+        Row numbers are 1-based: row 1 = first data row below the header.
+        """
         if not ctx.message.attachments:
             return await ctx.send("❌ Attach an `.xlsx` file.")
         attachment = ctx.message.attachments[0]
@@ -515,7 +673,12 @@ class Excelembeds(commands.Cog):
         except Exception as e:
             return await ctx.send(f"❌ Invalid Excel: {str(e)[:200]}")
 
-        headers = list(next(ws.iter_rows(min_row=1, max_row=1, values_only=True)))
+        try:
+            headers = list(next(ws.iter_rows(min_row=1, max_row=1, values_only=True)))
+        except StopIteration:
+            wb.close()
+            return await ctx.send("❌ The spreadsheet appears to be empty.")
+
         col_map = self._get_column_indices(headers)
 
         row_data = None
@@ -550,9 +713,13 @@ class Excelembeds(commands.Cog):
             await ctx.send(f"❌ Preview error: {str(exc)[:200]}")
 
     @excelembed.command(name="create", aliases=["send"])
-    async def excelembed_create(self, ctx: commands.Context, channel: discord.TextChannel, reminders: str = "no"):
+    async def excelembed_create(
+        self, ctx: commands.Context, channel: discord.TextChannel, reminders: str = "no"
+    ):
         """Import Excel and send rich embeds.
-        Use: ,excelembed create #channel yes   (yes enables reminders if event_time column exists)"""
+
+        Use: ,excelembed create #channel yes   (yes enables reminders if event_time column exists)
+        """
         if not ctx.message.attachments:
             return await ctx.send("❌ Attach an `.xlsx` file.")
 
@@ -577,15 +744,24 @@ class Excelembeds(commands.Cog):
         except Exception as e:
             return await ctx.send(f"❌ Invalid Excel: {str(e)[:200]}")
 
-        headers = list(next(ws.iter_rows(min_row=1, max_row=1, values_only=True)))
+        try:
+            headers = list(next(ws.iter_rows(min_row=1, max_row=1, values_only=True)))
+        except StopIteration:
+            wb.close()
+            return await ctx.send("❌ The spreadsheet appears to be empty.")
+
         col_map = self._get_column_indices(headers)
         max_rows = await self.config.guild(ctx.guild).max_rows()
 
+        # Read all data rows into a list to avoid read-only iteration issues
         all_rows = list(ws.iter_rows(min_row=2, values_only=True))
         wb.close()
 
         if len(all_rows) > max_rows:
-            await ctx.send(f"⚠️ Warning: File has **{len(all_rows)}** data rows – only the first **{max_rows}** will be processed.")
+            await ctx.send(
+                f"⚠️ Warning: File has **{len(all_rows)}** data rows – "
+                f"only the first **{max_rows}** will be processed."
+            )
 
         rows_processed = 0
         errors = []
@@ -602,13 +778,17 @@ class Excelembeds(commands.Cog):
                     errors.append(f"Row {row_idx}: Skipped (invalid embed).")
                     continue
 
-                content = str(self._get_cell(row, col_map, "content", "")).strip()[:2000] or None
+                content = (
+                    str(self._get_cell(row, col_map, "content", "")).strip()[:2000] or None
+                )
 
                 ping_role_id = str(self._get_cell(row, col_map, "ping_role", "")).strip()
                 if ping_role_id.isdigit() and ctx.guild.get_role(int(ping_role_id)):
                     content = f"<@&{ping_role_id}> {content or ''}".strip()
 
-                silent_ping_id = str(self._get_cell(row, col_map, "silent_ping_role", "")).strip()
+                silent_ping_id = str(
+                    self._get_cell(row, col_map, "silent_ping_role", "")
+                ).strip()
                 allowed_mentions = None
                 if silent_ping_id.isdigit() and ctx.guild.get_role(int(silent_ping_id)):
                     content = f"<@&{silent_ping_id}> {content or ''}".strip()
@@ -619,11 +799,23 @@ class Excelembeds(commands.Cog):
                 self._apply_mentions_to_embed(embed, ctx.guild)
 
                 view = self._build_view_from_row(row, col_map)
-                message = await channel.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)
+                message = await channel.send(
+                    content=content,
+                    embed=embed,
+                    view=view,
+                    allowed_mentions=allowed_mentions,
+                )
 
                 event_time = self._parse_datetime(self._get_cell(row, col_map, "event_time"))
                 if reminders_enabled and event_time:
-                    emoji = str(self._get_cell(row, col_map, "reminder_emoji", self.DEFAULT_REMINDER_EMOJI)).strip() or self.DEFAULT_REMINDER_EMOJI
+                    emoji = (
+                        str(
+                            self._get_cell(
+                                row, col_map, "reminder_emoji", self.DEFAULT_REMINDER_EMOJI
+                            )
+                        ).strip()
+                        or self.DEFAULT_REMINDER_EMOJI
+                    )
                     await message.add_reaction(emoji)
                     pending = await self.config.guild(ctx.guild).pending_reminders()
 
@@ -653,7 +845,7 @@ class Excelembeds(commands.Cog):
         msg = f"✅ **Success!** Sent **{rows_processed}** embed(s) to {channel.mention}."
         if errors:
             msg += "\n\n**Warnings/Errors:**\n" + "\n".join(errors[:15])
-        if reminders_enabled and ctx.guild.member_count > 500:
+        if reminders_enabled and ctx.guild.member_count and ctx.guild.member_count > 500:
             msg += "\n\n⚠️ **Large guild warning**: DM reminders may hit rate limits."
         await ctx.send(msg)
 
@@ -673,7 +865,7 @@ class Excelembeds(commands.Cog):
 
     @excelembed_config.command(name="reminders")
     async def config_reminders(self, ctx: commands.Context):
-        """Toggle reminder mode and view settings (rate-limit warning on large guilds)."""
+        """Toggle reminder mode and view settings."""
         current = await self.config.guild(ctx.guild).reminder_mode()
         await self.config.guild(ctx.guild).reminder_mode.set(not current)
         conf = await self.config.guild(ctx.guild).all()
