@@ -216,7 +216,7 @@ class Excelembeds(commands.Cog):
             return text
 
         def replace_match(m):
-            if m.group(1):  # already a mention
+            if m.group(1):
                 return m.group(0)
             id_str = m.group(2)
             id_int = int(id_str)
@@ -438,13 +438,13 @@ class Excelembeds(commands.Cog):
         embed.add_field(
             name="Advanced",
             value=(
-                "`timestamp` — date/time shown at bottom (Excel date or `2026-04-15 19:00`)\n"
+                "`timestamp` — date/time shown at the bottom (Excel date or `2026-04-15 19:00`)\n"
                 "`fields` — JSON array of embed fields\n"
-                "`buttons` — JSON array of buttons\n"
+                "`buttons` — JSON array of interactive buttons\n"
                 "`dropdowns` — JSON array of select menus\n\n"
                 "**Examples:**\n"
                 "```json\n"
-                'timestamp: 2026-04-15 19:00\n'
+                "timestamp: 2026-04-15 19:00\n"
                 'fields: [{"name":"Date","value":"April 15","inline":true}]\n'
                 'buttons: [{"label":"RSVP","url":"https://example.com","emoji":"✅","style":"primary","row":0}]\n'
                 'dropdowns: [{"placeholder":"Choose role","options":["Member","VIP"],"min_values":1,"max_values":1,"row":1}]\n'
@@ -488,7 +488,7 @@ class Excelembeds(commands.Cog):
             name="Config Commands (`[p]excelembed config`)",
             value=(
                 "`maxrows <number>` — set maximum rows per file (1-200)\n"
-                "`reminders` — toggle DM reminders **(rate-limit warning on large guilds)**\n"
+                "`reminders` — toggle DM reminders **(rate-limit warning on large guilds >500 members)**\n"
                 "`cleanup` — clear all pending reminders"
             ),
             inline=False,
