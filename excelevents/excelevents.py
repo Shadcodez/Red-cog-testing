@@ -50,7 +50,6 @@ class Excelembeds(commands.Cog):
         self.logger.info("Excelembeds cog unloaded.")
 
     async def red_delete_data_for_user(self, *, requester: str, user_id: int):
-        """Delete user reminder data when requested (Red GDPR hook)."""
         guilds = await self.config.all_guilds()
         for guild_id, data in guilds.items():
             pending = data.get("pending_reminders", {})
