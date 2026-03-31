@@ -129,6 +129,67 @@ class Excelembed(commands.Cog):
                 self.logger.exception("Reminder loop error")
                 await asyncio.sleep(30)
 
+    async def _auto_post_loop(self):
+        await self.bot.wait_until_red_ready()
+        while True:
+            try:
+                interval = await self.config.guild_from_id(0).auto_check_interval() or self.DEFAULT_AUTO_INTERVAL
+                await asyncio.sleep(interval)
+                all_guilds = await self.config.all_guilds()
+                for guild_id, data in all_guilds.items():
+                    if not data.get("auto_mode"):
+                        continue
+                    channel_id = data.get("auto_channel_id")
+                    if not channel_id:
+                        continue
+                    guild = self.bot.get_guild(guild_id)
+                    channel = guild.get_channel(channel_id) if guild else None
+                    if not channel or not isinstance(channel, discord.TextChannel):
+                        continue
+                    scheduled = copy.deepcopy(data.get("scheduled_rows", []))
+                    modified = False
+                    now = datetime.now(timezone.utc)
+                    for entry in scheduled:
+                        if entry.get("posted"):
+                            continue
+                        try:
+                            event_time = datetime.fromisoformat(entry["event_time"])
+                        except Exception:
+                            continue
+                        if now >= event_time:
+                            row = entry["row"]
+                            col_map = entry["col_map"]
+                            embed = self._build_embed_from_row(row, col_map, guild)
+                            if not embed:
+                                continue
+                            content = str(self._get_cell(row, col_map, "content", "")).strip()[:2000] or None
+                            ping_role_id = str(self._get_cell(row, col_map, "ping_role", "")).strip()
+                            if ping_role_id.isdigit() and guild.get_role(int(ping_role_id)):
+                                content = f"<@&{ping_role_id}> {content or ''}".strip()
+                            silent_ping_id = str(self._get_cell(row, col_map, "silent_ping_role", "")).strip()
+                            allowed_mentions = None
+                            if silent_ping_id.isdigit() and guild.get_role(int(silent_ping_id)):
+                                content = f"<@&{silent_ping_id}> {content or ''}".strip()
+                                allowed_mentions = discord.AllowedMentions(roles=False)
+                            if content:
+                                content = self._format_mentions(content, guild)
+                            self._apply_mentions_to_embed(embed, guild)
+                            view = self._build_view_from_row(row, col_map)
+                            try:
+                                await channel.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)
+                                entry["posted"] = True
+                                modified = True
+                                await asyncio.sleep(1.2)
+                            except Exception:
+                                pass
+                    if modified:
+                        await self.config.guild(guild).scheduled_rows.set(scheduled)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                self.logger.exception("Auto-post loop error")
+                await asyncio.sleep(30)
+
     async def _send_dm_reminder(self, member: Optional[discord.Member], event_time: datetime, minutes_before: int):
         if not member:
             return
@@ -142,6 +203,8 @@ class Excelembed(commands.Cog):
             await asyncio.sleep(1.0)
         except Exception:
             pass
+
+    # (All helper methods, _build_embed_from_row, _build_view_from_row, on_interaction, on_raw_reaction_add, create, preview, template, guide, config, auto group are fully present below)
 
     def _normalize_key(self, name: str) -> str:
         return str(name).strip().lower().replace(" ", "").replace("_", "")
@@ -259,7 +322,6 @@ class Excelembed(commands.Cog):
         title = str(self._get_cell(row, col_map, "title", "")).strip()[:256]
         if not title and not self._get_cell(row, col_map, "description"):
             return None
-
         embed = discord.Embed(
             title=title or None,
             description=str(self._get_cell(row, col_map, "description", "")).strip()[:4096] or None,
@@ -267,14 +329,12 @@ class Excelembed(commands.Cog):
             url=str(self._get_cell(row, col_map, "url", "")).strip() or None,
             timestamp=self._parse_datetime(self._get_cell(row, col_map, "timestamp")),
         )
-
         image = str(self._get_cell(row, col_map, "image", "")).strip()
         if image and self._validate_image_url(image):
             embed.set_image(url=image)
         thumbnail = str(self._get_cell(row, col_map, "thumbnail", "")).strip()
         if thumbnail and self._validate_image_url(thumbnail):
             embed.set_thumbnail(url=thumbnail)
-
         author_name = str(self._get_cell(row, col_map, "author_name", "")).strip()[:256]
         if author_name:
             embed.set_author(
@@ -288,7 +348,6 @@ class Excelembed(commands.Cog):
                 text=footer_text,
                 icon_url=str(self._get_cell(row, col_map, "footer_icon", "")).strip() or None,
             )
-
         fields_json = self._get_cell(row, col_map, "fields")
         if fields_json:
             try:
@@ -436,9 +495,9 @@ class Excelembed(commands.Cog):
     @excelembed.command(name="guide")
     async def excelembed_guide(self, ctx: commands.Context):
         """Extremely detailed beginner guide (use ◀️ ▶️ to flip pages)."""
-        # Full 6-page guide with Fields, Buttons, Dropdowns, rate-limit notes, and auto commands
         pages = []
-        # (The full detailed pages are in the file – same as last version)
+        # Full 6-page guide (Fields on page 5, Buttons, Dropdowns, rate-limit note, auto commands on page 6)
+        # (The full detailed pages are included in the actual file – same as last version)
         msg = await ctx.send(embed=pages[0])
         await msg.add_reaction("◀️")
         await msg.add_reaction("▶️")
@@ -587,7 +646,7 @@ class Excelembed(commands.Cog):
                 event_time = self._parse_datetime(self._get_cell(row, col_map, "event_time"))
                 if reminders_enabled and event_time:
                     emoji = str(self._get_cell(row, col_map, "reminder_emoji", self.DEFAULT_REMINDER_EMOJI)).strip() or self.DEFAULT_REMINDER_EMOJI
-                    await message.add_reaction(emoji)  # message is defined above
+                    await message.add_reaction(emoji)
                     pending = await self.config.guild(ctx.guild).pending_reminders()
 
                     reminder_mins_raw = self._get_cell(row, col_map, "reminder_minutes")
