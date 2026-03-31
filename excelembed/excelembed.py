@@ -380,7 +380,6 @@ class Excelembed(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Reminder handling
         guild = self.bot.get_guild(payload.guild_id)
         if guild and await self.config.guild(guild).reminder_mode():
             pending = await self.config.guild(guild).pending_reminders()
@@ -394,7 +393,6 @@ class Excelembed(commands.Cog):
                         await self.config.guild(guild).pending_reminders.set(pending)
                 return
 
-        # Guide pagination
         if payload.message_id in self._guide_messages:
             data = self._guide_messages[payload.message_id]
             if payload.user_id != data["user"] or str(payload.emoji) not in ("◀️", "▶️"):
@@ -423,10 +421,6 @@ class Excelembed(commands.Cog):
     @checks.admin_or_permissions(manage_messages=True)
     @commands.bot_has_permissions(send_messages=True, embed_links=True)
     async def excelembed(self, ctx: commands.Context):
-        """Excelembed – Excel to rich embeds.
-
-        Type ,excelembed by itself to see this help menu and all subcommands.
-        """
         if ctx.invoked_subcommand is None:
             await ctx.send_help()
 
@@ -435,82 +429,50 @@ class Excelembed(commands.Cog):
         """Extremely detailed beginner guide (use ◀️ ▶️ to flip pages)."""
         pages = []
 
-        # Page 1 – Welcome
         p1 = discord.Embed(title="Excelembed Guide – Page 1/6", color=discord.Color.blue())
-        p1.description = (
-            "Welcome! This cog lets **anyone** create beautiful, professional Discord messages using a simple Excel file.\n"
-            "No coding needed — just fill in a spreadsheet and upload it."
-        )
-        p1.add_field(
-            name="How to Start (Step-by-Step)",
-            value=(
-                "1. Type `,excelembed template` to download the example file\n"
-                "2. Open it in Excel, Google Sheets, or any spreadsheet program\n"
-                "3. Fill one row = one message\n"
-                "4. Attach the file and type `,excelembed create #channel`"
-            ),
-            inline=False,
-        )
+        p1.description = "Welcome! This cog lets anyone create beautiful Discord messages using a simple Excel file. No coding needed."
+        p1.add_field(name="How to Start", value="1. `,excelembed template` (download file)\n2. Fill one row = one message\n3. `,excelembed create #channel`", inline=False)
         pages.append(p1)
 
-        # Page 2 – Core Headers
         p2 = discord.Embed(title="Excelembed Guide – Page 2/6", color=discord.Color.blue())
-        p2.add_field(
-            name="Core Headers (the basics you need)",
-            value=(
-                "`title` — The big bold title at the top of the embed\n"
-                "`description` — The main body text of the message\n"
-                "`content` — Text shown **above** the embed (optional)\n"
-                "`color` — Color of the left bar (e.g. `#00FF00` or `green`)\n"
-                "`url` — Makes the title a clickable link (optional)"
-            ),
-            inline=False,
-        )
+        p2.add_field(name="Core Headers", value="`title` – Big title\n`description` – Main text\n`content` – Text above embed\n`color` – Bar color (#hex or name)\n`url` – Clickable title link", inline=False)
         pages.append(p2)
 
-        # Page 3 – Media & Author
         p3 = discord.Embed(title="Excelembed Guide – Page 3/6", color=discord.Color.blue())
-        p3.add_field(
-            name="Media & Author",
-            value=(
-                "`image` — Large picture at the bottom of the embed\n"
-                "`thumbnail` — Small picture on the right side\n"
-                "`author_name` — Name shown at the very top\n"
-                "`author_icon` — Small icon next to the author name\n"
-                "`footer_text` — Small text at the very bottom\n"
-                "`footer_icon` — Small icon next to the footer text"
-            ),
-            inline=False,
-        )
+        p3.add_field(name="Media & Author", value="`image` – Large bottom picture\n`thumbnail` – Small right picture\n`author_name` / `author_icon` – Top author\n`footer_text` / `footer_icon` – Bottom text", inline=False)
         pages.append(p3)
 
-        # Page 4 – Advanced
         p4 = discord.Embed(title="Excelembed Guide – Page 4/6", color=discord.Color.blue())
-        p4.add_field(
-            name="Advanced Features",
+        p4.add_field(name="Advanced Features", value="`timestamp` – Date/time at bottom\n`fields` – Extra info boxes\n`buttons` – Clickable buttons\n`dropdowns` – Selection menus", inline=False)
+        pages.append(p4)
+
+        # Page 5 – Fields + Buttons (as requested)
+        p5 = discord.Embed(title="Excelembed Guide – Page 5/6", color=discord.Color.blue())
+        p5.add_field(
+            name="Fields – Extra info boxes inside the embed",
             value=(
-                "`timestamp` — Shows a date/time at the bottom\n"
-                "`fields` — Extra information boxes inside the embed\n"
-                "`buttons` — Clickable buttons users can press\n"
-                "`dropdowns` — Drop-down menus users can select from"
+                "Fields let you add small titled sections inside the embed (like a table).\n"
+                "Great for schedules, stats, rules, etc.\n\n"
+                "**Example 1 – Single field:**\n"
+                "```json\n"
+                '[{"name":"Event Date","value":"April 15 at 7 PM","inline":false}]\n'
+                "```\n"
+                "**Example 2 – Two side-by-side fields:**\n"
+                "```json\n"
+                '[{"name":"Location","value":"Discord Voice","inline":true}, {"name":"Host","value":"@Moderator","inline":true}]\n'
+                "```"
             ),
             inline=False,
         )
-        pages.append(p4)
-
-        # Page 5 – Buttons (extremely detailed)
-        p5 = discord.Embed(title="Excelembed Guide – Page 5/6", color=discord.Color.blue())
         p5.add_field(
-            name="Buttons – What they do & how to use them",
+            name="Buttons – Clickable actions",
             value=(
-                "Buttons let users **click** on the message and get a response.\n"
-                "They can be link buttons (open a website) or action buttons (show a message).\n"
-                "Great for RSVP, polls, links, or simple interactions.\n\n"
-                "**Example 1 – Link button (opens a website):**\n"
+                "Buttons let users click the message.\n"
+                "**Example 1 – Link button (opens website):**\n"
                 "```json\n"
                 '[{"label":"Join Event","url":"https://example.com","emoji":"🎟️","style":"link"}]\n'
                 "```\n"
-                "**Example 2 – Action button (shows a message when clicked):**\n"
+                "**Example 2 – Action button (shows message):**\n"
                 "```json\n"
                 '[{"label":"I will attend","emoji":"✅","style":"primary"}]\n'
                 "```"
@@ -519,48 +481,26 @@ class Excelembed(commands.Cog):
         )
         pages.append(p5)
 
-        # Page 6 – Dropdowns + Commands/Config
+        # Page 6 – Dropdowns + rest
         p6 = discord.Embed(title="Excelembed Guide – Page 6/6", color=discord.Color.blue())
         p6.add_field(
-            name="Dropdowns – What they do & how to use them",
+            name="Dropdowns – Selection menus",
             value=(
-                "Dropdowns (select menus) let users **choose** from a list of options.\n"
-                "Perfect for role selection, choosing options, or simple forms.\n\n"
-                "**Example 1 – Simple role choice:**\n"
+                "Dropdowns let users pick from a list.\n"
+                "**Example 1 – Simple choice:**\n"
                 "```json\n"
                 '[{"placeholder":"Choose your role","options":["Member","VIP","Moderator"]}]\n'
                 "```\n"
-                "**Example 2 – Multiple selections allowed:**\n"
+                "**Example 2 – Multiple choices allowed:**\n"
                 "```json\n"
                 '[{"placeholder":"Select interests","options":["Gaming","Music","Art"],"min_values":1,"max_values":3}]\n'
                 "```"
             ),
             inline=False,
         )
-        p6.add_field(
-            name="Mentions & Reminders",
-            value=(
-                "`ping_role` — Normal mention\n"
-                "`silent_ping_role` — Silent mention (no sound)\n"
-                "`event_time` — Date/time for reminders\n"
-                "`reminder_minutes` — When to send DM reminders\n"
-                "`reminder_emoji` — Emoji users click to get reminders"
-            ),
-            inline=False,
-        )
-        p6.add_field(
-            name="Commands & Config",
-            value=(
-                "`create #channel [yes/no]` — Send all rows\n"
-                "`preview #channel 3` — Test row 3 only\n"
-                "`template` — Download example file\n"
-                "`config maxrows <number>` — Change max rows\n"
-                "`config reminders` — Toggle DM reminders\n"
-                "`config cleanup` — Clear reminders"
-            ),
-            inline=False,
-        )
-        p6.set_footer(text="Use ◀️ ▶️ to flip pages • Everything is optional except title or description")
+        p6.add_field(name="Mentions & Reminders", value="`ping_role` / `silent_ping_role` – Mention roles\n`event_time` – Reminder time\n`reminder_minutes` – When to DM\n`reminder_emoji` – Click emoji", inline=False)
+        p6.add_field(name="Commands & Config", value="`create #channel [yes]` – Send embeds\n`preview #channel 3` – Test row 3\n`template` – Download file\n`config` group for settings", inline=False)
+        p6.set_footer(text="Use ◀️ ▶️ to flip pages • JSON must be valid")
         pages.append(p6)
 
         msg = await ctx.send(embed=pages[0])
