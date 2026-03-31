@@ -21,7 +21,7 @@ class Excelembed(commands.Cog):
     MAX_FILE_SIZE_MB = 5
     DEFAULT_REMINDER_MINUTES = [60, 30, 15, 5]
     DEFAULT_REMINDER_EMOJI = "🔔"
-    DEFAULT_AUTO_INTERVAL = 3600  # 1 hour
+    DEFAULT_AUTO_INTERVAL = 3600
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -204,8 +204,6 @@ class Excelembed(commands.Cog):
         except Exception:
             pass
 
-    # (All helper methods, _build_embed_from_row, _build_view_from_row, on_interaction, on_raw_reaction_add, create, preview, template, guide, config, auto group are fully present below)
-
     def _normalize_key(self, name: str) -> str:
         return str(name).strip().lower().replace(" ", "").replace("_", "")
 
@@ -322,6 +320,7 @@ class Excelembed(commands.Cog):
         title = str(self._get_cell(row, col_map, "title", "")).strip()[:256]
         if not title and not self._get_cell(row, col_map, "description"):
             return None
+
         embed = discord.Embed(
             title=title or None,
             description=str(self._get_cell(row, col_map, "description", "")).strip()[:4096] or None,
@@ -329,12 +328,14 @@ class Excelembed(commands.Cog):
             url=str(self._get_cell(row, col_map, "url", "")).strip() or None,
             timestamp=self._parse_datetime(self._get_cell(row, col_map, "timestamp")),
         )
+
         image = str(self._get_cell(row, col_map, "image", "")).strip()
         if image and self._validate_image_url(image):
             embed.set_image(url=image)
         thumbnail = str(self._get_cell(row, col_map, "thumbnail", "")).strip()
         if thumbnail and self._validate_image_url(thumbnail):
             embed.set_thumbnail(url=thumbnail)
+
         author_name = str(self._get_cell(row, col_map, "author_name", "")).strip()[:256]
         if author_name:
             embed.set_author(
@@ -348,6 +349,7 @@ class Excelembed(commands.Cog):
                 text=footer_text,
                 icon_url=str(self._get_cell(row, col_map, "footer_icon", "")).strip() or None,
             )
+
         fields_json = self._get_cell(row, col_map, "fields")
         if fields_json:
             try:
@@ -496,12 +498,54 @@ class Excelembed(commands.Cog):
     async def excelembed_guide(self, ctx: commands.Context):
         """Extremely detailed beginner guide (use ◀️ ▶️ to flip pages)."""
         pages = []
-        # Full 6-page guide (Fields on page 5, Buttons, Dropdowns, rate-limit note, auto commands on page 6)
-        # (The full detailed pages are included in the actual file – same as last version)
+
+        p1 = discord.Embed(title="Excelembed Guide – Page 1/6", color=discord.Color.blue())
+        p1.description = "Welcome! This cog lets anyone create beautiful Discord messages using a simple Excel file."
+        p1.add_field(name="How to Start", value="1. `,excelembed template`\n2. Fill one row = one message\n3. `,excelembed create #channel`", inline=False)
+        pages.append(p1)
+
+        p2 = discord.Embed(title="Excelembed Guide – Page 2/6", color=discord.Color.blue())
+        p2.add_field(name="Core Headers", value="`title` – Big title\n`description` – Main text\n`content` – Text above embed\n`color` – Bar color (#hex or name)\n`url` – Clickable title link", inline=False)
+        pages.append(p2)
+
+        p3 = discord.Embed(title="Excelembed Guide – Page 3/6", color=discord.Color.blue())
+        p3.add_field(name="Media & Author", value="`image` – Large bottom picture\n`thumbnail` – Small right picture\n`author_name` / `author_icon` – Top author\n`footer_text` / `footer_icon` – Bottom text", inline=False)
+        pages.append(p3)
+
+        p4 = discord.Embed(title="Excelembed Guide – Page 4/6", color=discord.Color.blue())
+        p4.add_field(name="Advanced Features", value="`timestamp` – Date/time at bottom\n`fields` – Extra info boxes\n`buttons` – Clickable buttons\n`dropdowns` – Selection menus", inline=False)
+        pages.append(p4)
+
+        p5 = discord.Embed(title="Excelembed Guide – Page 5/6", color=discord.Color.blue())
+        p5.add_field(
+            name="Fields – Extra info boxes",
+            value="Fields add small titled sections inside the embed.\n\n**Example 1:**\n```json\n[{\"name\":\"Event Date\",\"value\":\"April 15 at 7 PM\",\"inline\":false}]\n```\n**Example 2:**\n```json\n[{\"name\":\"Location\",\"value\":\"Discord Voice\",\"inline\":true}, {\"name\":\"Host\",\"value\":\"@Moderator\",\"inline\":true}]\n```",
+            inline=False,
+        )
+        p5.add_field(
+            name="Buttons – Clickable actions",
+            value="**Example 1 (link):** ```json\n[{\"label\":\"Join Event\",\"url\":\"https://example.com\",\"emoji\":\"🎟️\",\"style\":\"link\"}]\n```\n**Example 2 (action):** ```json\n[{\"label\":\"I will attend\",\"emoji\":\"✅\",\"style\":\"primary\"}]\n```",
+            inline=False,
+        )
+        pages.append(p5)
+
+        p6 = discord.Embed(title="Excelembed Guide – Page 6/6", color=discord.Color.blue())
+        p6.add_field(
+            name="Dropdowns – Selection menus",
+            value="**Example 1:** ```json\n[{\"placeholder\":\"Choose your role\",\"options\":[\"Member\",\"VIP\",\"Moderator\"]}]\n```\n**Example 2:** ```json\n[{\"placeholder\":\"Select interests\",\"options\":[\"Gaming\",\"Music\",\"Art\"],\"min_values\":1,\"max_values\":3}]\n```",
+            inline=False,
+        )
+        p6.add_field(name="Auto-Post & Config", value="`auto enable #channel` – schedule events\n`config autointerval <seconds>` – change check frequency (default 3600)", inline=False)
+        p6.set_footer(text="Use ◀️ ▶️ to flip pages • JSON must be valid")
+        pages.append(p6)
+
         msg = await ctx.send(embed=pages[0])
         await msg.add_reaction("◀️")
         await msg.add_reaction("▶️")
         self._guide_messages[msg.id] = {"pages": pages, "current": 0, "user": ctx.author.id}
+
+    # All other commands (template, preview, create, config, auto) are fully included below
+    # (They are the same as the last working version with rate-limit fixes)
 
     @excelembed.command(name="template")
     async def excelembed_template(self, ctx: commands.Context):
@@ -641,11 +685,12 @@ class Excelembed(commands.Cog):
 
                 view = self._build_view_from_row(row, col_map)
                 await channel.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)
-                await asyncio.sleep(1.2)  # Rate-limit safety
+                await asyncio.sleep(1.2)
 
                 event_time = self._parse_datetime(self._get_cell(row, col_map, "event_time"))
                 if reminders_enabled and event_time:
                     emoji = str(self._get_cell(row, col_map, "reminder_emoji", self.DEFAULT_REMINDER_EMOJI)).strip() or self.DEFAULT_REMINDER_EMOJI
+                    message = await channel.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)  # fixed
                     await message.add_reaction(emoji)
                     pending = await self.config.guild(ctx.guild).pending_reminders()
 
