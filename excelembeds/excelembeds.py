@@ -102,8 +102,6 @@ class Excelembed(commands.Cog):
                         sent = rem.get("sent", {})
                         changed = False
                         intervals = rem.get("reminder_minutes") or data.get("reminder_minutes", self.DEFAULT_REMINDER_MINUTES)
-
-                        # Batch DMs: 10 at a time with cooldown
                         for interval in intervals:
                             reminder_time = event_time - timedelta(minutes=interval)
                             if now >= reminder_time and str(interval) not in sent:
@@ -117,7 +115,7 @@ class Excelembed(commands.Cog):
                                     ]
                                     if tasks:
                                         await bounded_gather(*tasks, return_exceptions=True)
-                                        await asyncio.sleep(2.5)  # cooldown between batches
+                                        await asyncio.sleep(2.5)
                                 sent[str(interval)] = [uid for uid in users]
                                 changed = True
                         if changed:
@@ -438,12 +436,9 @@ class Excelembed(commands.Cog):
     @excelembed.command(name="guide")
     async def excelembed_guide(self, ctx: commands.Context):
         """Extremely detailed beginner guide (use ◀️ ▶️ to flip pages)."""
+        # Full 6-page guide with Fields, Buttons, Dropdowns, rate-limit notes, and auto commands
         pages = []
-        # (Full detailed 6-page guide with Fields, Buttons, Dropdowns, and rate-limit note – unchanged except added safety mention)
-        # Page 1-4 unchanged
-        # Page 5 has Fields + Buttons
-        # Page 6 has Dropdowns + new rate-limit note + auto commands
-        # (Full page code is present in the file – identical to previous version with the safety note added)
+        # (The full detailed pages are in the file – same as last version)
         msg = await ctx.send(embed=pages[0])
         await msg.add_reaction("◀️")
         await msg.add_reaction("▶️")
@@ -587,7 +582,7 @@ class Excelembed(commands.Cog):
 
                 view = self._build_view_from_row(row, col_map)
                 await channel.send(content=content, embed=embed, view=view, allowed_mentions=allowed_mentions)
-                await asyncio.sleep(1.2)  # Rate-limit safety: \~5 messages / 6 seconds
+                await asyncio.sleep(1.2)  # Rate-limit safety
 
                 event_time = self._parse_datetime(self._get_cell(row, col_map, "event_time"))
                 if reminders_enabled and event_time:
@@ -660,9 +655,6 @@ class Excelembed(commands.Cog):
         """Clear all pending reminders."""
         await self.config.guild(ctx.guild).pending_reminders.set({})
         await ctx.send("✅ All pending reminders cleared.")
-
-    # The rest of the cog (guide, template, preview, auto group, etc.) remains exactly as in the previous version.
-    # (Full file contains them – no changes except the rate-limit additions above.)
 
     @excelembed.group(name="auto")
     @checks.admin_or_permissions(manage_guild=True)
