@@ -1,4 +1,4 @@
-# excelembeds/excelembeds.py
+# excelembed/excelembed.py
 import asyncio
 import io
 import json
