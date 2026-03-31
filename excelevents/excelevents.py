@@ -363,73 +363,58 @@ class Excelembeds(commands.Cog):
 
     @excelembed.command(name="guide")
     async def excelembed_guide(self, ctx: commands.Context):
-        """Detailed guide with examples (use ◀️ ▶️ reactions to switch pages)."""
+        """Detailed multi-page guide (use ◀️ ▶️ to navigate)."""
         pages = []
 
-        # Page 1
-        page1 = discord.Embed(title="Excelembeds Guide – Page 1/2", color=discord.Color.blue())
-        page1.description = "Upload `.xlsx` → rich embeds. One row = one embed.\nGet template: `[p]excelembed template`"
-        page1.add_field(name="Core Headers", value="`title` / `description` — **at least one required**\n`content` — text above embed (optional)\n`color` — #hex or name (optional)\n`url` — title hyperlink (optional)", inline=False)
-        page1.add_field(name="Media & Author", value="`image` / `thumbnail` — direct image URL (optional)\n`author_name` / `author_url` / `author_icon` — author block (optional)\n`footer_text` / `footer_icon` — footer (optional)", inline=False)
-        page1.add_field(
-            name="Advanced (detailed)",
-            value=(
-                "**timestamp** — when the embed shows the time (Excel date or `2026-04-15 19:00`)\n"
-                "**fields** — JSON array of fields\n"
-                "**buttons** — JSON array of interactive buttons\n"
-                "**dropdowns** — JSON array of select menus\n"
-                "```json\n"
-                "timestamp: 2026-04-15 19:00\n"
-                "fields: [{\"name\":\"Date\",\"value\":\"April 15\",\"inline\":true}]\n"
-                "buttons: [{\"label\":\"RSVP\",\"url\":\"https://example.com\",\"emoji\":\"✅\",\"style\":\"primary\",\"row\":0}]\n"
-                "dropdowns: [{\"placeholder\":\"Choose role\",\"options\":[\"Member\",\"VIP\"],\"min_values\":1,\"max_values\":1,\"row\":1}]\n"
-                "```"
-            ),
-            inline=False,
-        )
-        pages.append(page1)
+        # Page 1 – Basics
+        p1 = discord.Embed(title="Excelembeds Guide – Page 1/4", color=discord.Color.blue())
+        p1.description = "One row = one embed. Upload .xlsx file.\nTemplate: `[p]excelembed template`"
+        p1.add_field(name="Core Headers", value="`title` / `description` — **at least one required**\n`content` — text above embed (optional)\n`color` — #hex or name (optional)\n`url` — title hyperlink (optional)", inline=False)
+        p1.add_field(name="Media & Author", value="`image` / `thumbnail` — direct image URL (optional)\n`author_name` / `author_url` / `author_icon` — author block (optional)\n`footer_text` / `footer_icon` — footer (optional)", inline=False)
+        pages.append(p1)
 
-        # Page 2
-        page2 = discord.Embed(title="Excelembeds Guide – Page 2/2", color=discord.Color.blue())
-        page2.add_field(
-            name="Mentions & Reminders (detailed)",
-            value=(
-                "`ping_role` — role ID → auto <@&ID> ping\n"
-                "`silent_ping_role` — role ID → **silent ping** (mention added but no notification sound)\n"
-                "`event_time` — required for reminders (same format as timestamp)\n"
-                "`reminder_minutes` — JSON list (overrides guild default)\n"
-                "`reminder_emoji` — custom reaction (default 🔔)\n"
-                "```json\n"
-                "ping_role: 123456789012345678\n"
-                "silent_ping_role: 123456789012345678\n"
-                "event_time: 2026-04-15 19:00\n"
-                "reminder_minutes: [60,30,15]\n"
-                "reminder_emoji: 🔥\n"
-                "```"
-            ),
-            inline=False,
-        )
-        page2.add_field(
-            name="Commands",
-            value=(
-                "`create #channel [yes/no]` — **send every row** as embeds (add `yes` to enable reminders)\n"
-                "`preview #channel 3` — test only row 3 (no reminders saved)\n"
-                "`template` — download ready-to-fill Excel file\n"
-                "`guide` — this help (use ◀️ ▶️)"
-            ),
-            inline=False,
-        )
-        page2.add_field(
-            name="Config (`[p]excelembed config`)",
-            value=(
-                "`maxrows <number>` — change max rows per file (1-200)\n"
-                "`reminders` — toggle DM reminders **(rate-limit warning on large guilds >500 members)**\n"
-                "`cleanup` — delete all pending reminders"
-            ),
-            inline=False,
-        )
-        page2.set_footer(text="JSON must be valid • Silent ping uses Discord allowed_mentions")
-        pages.append(page2)
+        # Page 2 – Advanced
+        p2 = discord.Embed(title="Excelembeds Guide – Page 2/4", color=discord.Color.blue())
+        p2.add_field(name="Advanced", value="**timestamp** — embed timestamp\n**fields** — JSON array\n**buttons** — JSON array\n**dropdowns** — JSON array of selects", inline=False)
+        p2.add_field(name="Examples", value=(
+            "```json\n"
+            "timestamp: 2026-04-15 19:00\n"
+            "fields: [{\"name\":\"Date\",\"value\":\"April 15\",\"inline\":true}]\n"
+            "buttons: [{\"label\":\"RSVP\",\"url\":\"https://example.com\",\"emoji\":\"✅\",\"style\":\"primary\",\"row\":0}]\n"
+            "dropdowns: [{\"placeholder\":\"Choose role\",\"options\":[\"Member\",\"VIP\"],\"min_values\":1,\"max_values\":1,\"row\":1}]\n"
+            "```"
+        ), inline=False)
+        pages.append(p2)
+
+        # Page 3 – Mentions & Reminders
+        p3 = discord.Embed(title="Excelembeds Guide – Page 3/4", color=discord.Color.blue())
+        p3.add_field(name="Mentions & Reminders", value="`ping_role` — normal ping\n`silent_ping_role` — silent ping\n`event_time` — required for reminders\n`reminder_minutes` — JSON list\n`reminder_emoji` — custom emoji", inline=False)
+        p3.add_field(name="Examples", value=(
+            "```json\n"
+            "ping_role: 123456789012345678\n"
+            "silent_ping_role: 123456789012345678\n"
+            "event_time: 2026-04-15 19:00\n"
+            "reminder_minutes: [60,30,15]\n"
+            "reminder_emoji: 🔥\n"
+            "```"
+        ), inline=False)
+        pages.append(p3)
+
+        # Page 4 – Commands & Config
+        p4 = discord.Embed(title="Excelembeds Guide – Page 4/4", color=discord.Color.blue())
+        p4.add_field(name="Commands", value=(
+            "`create #channel [yes/no]` — send all rows (yes = enable reminders)\n"
+            "`preview #channel 3` — test only row 3\n"
+            "`template` — download example file\n"
+            "`guide` — this help"
+        ), inline=False)
+        p4.add_field(name="Config Commands", value=(
+            "`[p]excelembed config maxrows <number>` — set max rows (1-200)\n"
+            "`[p]excelembed config reminders` — toggle DM reminders (rate-limit warning on large guilds)\n"
+            "`[p]excelembed config cleanup` — clear all pending reminders"
+        ), inline=False)
+        p4.set_footer(text="JSON must be valid • Use reactions ◀️ ▶️ to navigate")
+        pages.append(p4)
 
         msg = await ctx.send(embed=pages[0])
         await msg.add_reaction("◀️")
