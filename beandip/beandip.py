@@ -26,10 +26,9 @@ class GenderSelection(discord.ui.View):
         art = random.choice(self.cog.male_arts)
         await interaction.response.edit_message(
             content=(
-                "**♂️ Male mode activated!**\n"
-                "Penis size detected with **maximum accuracy** (original CogsByAdrian framework style).\n\n"
+                "**♂️ Male measurement detected!**\n"
                 f"{art}\n\n"
-                "*Beandip cog — 2026 update*"
+                "*Your peen's measurment is 100% accurate*"
             ),
             view=None,  # disable buttons after selection
         )
@@ -48,17 +47,16 @@ class GenderSelection(discord.ui.View):
         art = random.choice(self.cog.female_arts)
         await interaction.response.edit_message(
             content=(
-                "**♀️ Female mode activated!**\n"
-                "Kawaii beandip reactions loaded (15 ASCII options from psd-dude kaomojis).\n\n"
+                "**♀️ Female measurement detected!**\n"
                 f"{art}\n\n"
-                "*Beandip cog — 2026 update*"
+                "*Your Bean's measurment is 100% accurate*"
             ),
             view=None,
         )
 
 
 class Beandip(commands.Cog):
-    """Beandip — gender-choice ASCII generator (2026 update of CogsByAdrian penis framework)."""
+    """Beandip — gender-choice ASCII (update of CogsByAdrian penis framework)."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -107,11 +105,11 @@ class Beandip(commands.Cog):
         view = GenderSelection(self, ctx.author)
 
         embed = discord.Embed(
-            title="🫘 Beandip Detector 3000",
+            title="🫘 Bean / dip Detector 3000",
             description=(
                 "**Choose your mode!**\n\n"
-                "♂️ **Male** → Classic penis ASCII output (identical logic to original CogsByAdrian penis cog)\n"
-                "♀️ **Female** → Kawaii ASCII reaction table (15 options, same random selection method)\n\n"
+                "♂️ **Male**\n"
+                "♀️ **Female**\n\n"
                 "Maximum accuracy guaranteed. 100% scientifically accurate. 😂"
             ),
             color=discord.Color.purple(),
