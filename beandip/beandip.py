@@ -118,12 +118,12 @@ class Beandip(commands.Cog):
         view = GenderSelection(self, ctx.author)
 
         embed = discord.Embed(
-            title="🫘 Bean / dip Detector 3000",
+            title="🫘 Bean / Dip Detector 3001",
             description=(
-                "**Choose your mode!**\n\n"
+                "**Before I measure, what are you?**\n\n"
                 "♂️ **Male**\n"
-                "♀️ **Female**\n\n"
-                "Maximum accuracy guaranteed. 100% scientifically accurate. 😂"
+                "♀️ **Female**\n"
+                "Maximum accuracy guaranteed. 100% scientifically accurate."
             ),
             color=discord.Color.purple(),
         )
