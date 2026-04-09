@@ -16,43 +16,55 @@ class GenderSelection(discord.ui.View):
     async def male_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        """Male button → runs the original penis cog style output."""
+        """Male button → consistent measurement (seeded by user ID) + auto-delete embed."""
         if interaction.user.id != self.author.id:
             await interaction.response.send_message(
                 "❌ This beandip session belongs to someone else!", ephemeral=True
             )
             return
 
+        # Make measurement consistent across runs (exact same method as CogsByAdrian/penis.py)
+        state = random.getstate()
+        random.seed(str(interaction.user.id))
         art = random.choice(self.cog.male_arts)
-        await interaction.response.edit_message(
-            content=(
+        random.setstate(state)
+
+        content = (
                 "**♂️ Male measurement detected!**\n"
                 f"{art}\n\n"
                 "*Your peen's measurment is 100% accurate*"
-            ),
-            view=None,  # disable buttons after selection
         )
+
+        # Send new result message + auto-delete the original embed
+        await interaction.response.send_message(content=content)
+        await interaction.message.delete()
 
     @discord.ui.button(label="Female", emoji="♀️", style=discord.ButtonStyle.primary, row=0)
     async def female_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        """Female button → runs kawaii ASCII table (15 responses)."""
+        """Female button → consistent kawaii measurement (seeded by user ID) + auto-delete embed."""
         if interaction.user.id != self.author.id:
             await interaction.response.send_message(
                 "❌ This beandip session belongs to someone else!", ephemeral=True
             )
             return
 
+        # Make measurement consistent across runs (exact same method as CogsByAdrian/penis.py)
+        state = random.getstate()
+        random.seed(str(interaction.user.id))
         art = random.choice(self.cog.female_arts)
-        await interaction.response.edit_message(
-            content=(
+        random.setstate(state)
+
+        content = (
                 "**♀️ Female measurement detected!**\n"
                 f"{art}\n\n"
                 "*Your Bean's measurment is 100% accurate*"
-            ),
-            view=None,
         )
+
+        # Send new result message + auto-delete the original embed
+        await interaction.response.send_message(content=content)
+        await interaction.message.delete()
 
 
 class Beandip(commands.Cog):
@@ -61,7 +73,7 @@ class Beandip(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        # Male arts — exact same style/method as the original penis cog (random ASCII penis output)
+        # Male arts — exact same style/method as the original penis cog
         self.male_arts = [
             "8D",
             "8=D",
@@ -80,22 +92,23 @@ class Beandip(commands.Cog):
             "8====D~~~~",
         ]
 
-        # Female arts — 15 Kawaii ASCII reactions (pulled from https://www.psd-dude.com/kaomojis/)
+        # Female arts — 15 Kawaii ASCII kaomojis (pulled from https://www.psd-dude.com/kaomojis/)
+        # Exactly the same count as male arts and fully consistent per user ID
         self.female_arts = [
             "(｡•ᴗ•｡)",
             "(´｡• ᵕ •｡`)",
-            "(´｡• ω •｡`)",
-            "(￣▽￣)",
-            "(o^▽^o)",
-            "ヽ(・∀・)ﾉ",
-            "(⌒▽⌒)☆",
-            "(≧◡≦)",
             "(๑ > ᴗ < ๑)",
-            "(* ^ ω ^)",
-            "٩(◕‿◕｡)۶",
-            "(☆▽☆)",
-            "(⌒‿⌒)",
-            "╰(*´︶`*)╯",
+            "(´｡• ω •｡`)",
+            "(´・ω・`)",
+            "(´ ∀ ` *)",
+            "(´• ω •`)",
+            "(＾▽＾)",
+            "(⌒ω⌒)",
+            "(＠＾◡＾)",
+            "(o´▽`o)",
+            "(*´▽`*)",
+            "(´ ꒳ ` )",
+            "(≧◡≦)",
             "ヽ(>∀<☆)ノ",
         ]
 
@@ -117,6 +130,3 @@ class Beandip(commands.Cog):
         embed.set_footer(text="Click a button below • Only the command author can choose")
 
         await ctx.send(embed=embed, view=view)
-
-
-# This file contains only the cog and view. Setup is in __init__.py (Red V3/V4 standard).
