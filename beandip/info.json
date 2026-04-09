@@ -1,0 +1,17 @@
+// beandip/info.json
+{
+  "name": "Beandip",
+  "author": "SHADOW6six",
+  "short": "Gender-choice ASCII generator (Male = penis, Female = kawaii reactions)",
+  "description": "Updated version of the penis cog. Invoking [p]beandip shows two buttons (Male ♂️ / Female ♀️). Male uses the original penis ASCII output logic. Female uses a 15-response kawaii kaomoji table from psd-dude. Fully compatible with Red Discord Bot 2026.",
+  "version": "1.0.0",
+  "tags": [
+    "fun",
+    "meme",
+    "ascii",
+    "nsfw",
+    "kawaii"
+  ],
+  "requirements": [],
+  "hidden": false
+}
