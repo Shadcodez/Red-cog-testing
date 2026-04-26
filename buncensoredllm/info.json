@@ -1,5 +1,5 @@
 {
-    "author": "S (with Grok assistance)",
+    "author": "SHADOW6six",
     "name": "UncensoredLLM",
     "short": "Interface with USB-Uncensored-LLM local server (techjarves)",
     "description": "Chat with your local uncensored LLM from the USB-Uncensored-LLM GitHub repo. Features per-channel history, auto-delete after X messages, full parameter config, and built-in safety guardrails.",
