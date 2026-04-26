@@ -1,4 +1,4 @@
-from .usbuncensoredllm import USBUncensoredLLM
+from .uncensoredllm import UncensoredLLM
 
 async def setup(bot):
-    await bot.add_cog(USBUncensoredLLM(bot))
+    await bot.add_cog(UncensoredLLM(bot))
