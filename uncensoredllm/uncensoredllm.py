@@ -1,10 +1,10 @@
-from redbot.core import commands, Config, checks
+from redbot.core import commands, Config
 import aiohttp
 import asyncio
 from typing import List, Dict
 
 class UncensoredLLM(commands.Cog):
-    """Interface with Uncensored-LLM (techjarves GitHub)"""
+    """Interface with USB-Uncensored-LLM (local GGUF models via USB installer)"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -28,6 +28,12 @@ class UncensoredLLM(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
+    # ====================== CHAT ======================
+    @llm.command()
+    async def chat(self, ctx, *, message: str):
+        """Talk to the LLM. History is kept per channel."""
+        await self._handle_chat(ctx, message)
+
     async def _handle_chat(self, ctx, message: str):
         config = self.config
         channel_config = config.channel(ctx.channel)
@@ -44,7 +50,6 @@ class UncensoredLLM(commands.Cog):
 
         history: List[Dict] = await channel_config.history()
 
-        # SAFETY LAYER: Always put safety first
         messages = [
             {"role": "system", "content": safety},
             {"role": "system", "content": system},
@@ -62,22 +67,22 @@ class UncensoredLLM(commands.Cog):
                         "stream": False,
                         "options": {"temperature": temp}
                     },
-                    timeout=120
+                    timeout=180
                 ) as resp:
                     if resp.status != 200:
                         error = await resp.text()
-                        await ctx.send(f"LLM server error ({resp.status}): {error[:500]}")
+                        await ctx.send(f"❌ LLM server error ({resp.status}): {error[:500]}")
                         return
                     data = await resp.json()
 
             assistant_content = data.get("message", {}).get("content", "No response received.")
-            
+
             history.append({"role": "user", "content": message})
             history.append({"role": "assistant", "content": assistant_content})
 
             if len(history) > max_len:
                 history = []
-                await ctx.send("Conversation reached max length and was deleted. Starting fresh!")
+                await ctx.send("🧹 Conversation reached max length and was auto-cleared.")
 
             await channel_config.history.set(history)
 
@@ -88,18 +93,65 @@ class UncensoredLLM(commands.Cog):
                 await ctx.send(assistant_content)
 
         except aiohttp.ClientConnectorError:
-            await ctx.send(f"Cannot connect to LLM server at {base_url} ...")
+            await ctx.send(f"❌ Cannot connect to LLM server at `{base_url}`\nMake sure the USB-Uncensored-LLM is running.")
         except Exception as e:
-            await ctx.send(f"Unexpected error: {str(e)[:300]}")
+            await ctx.send(f"❌ Unexpected error: {str(e)[:400]}")
 
-    @llm.command(name="setsafety")
+    # ====================== CONFIG COMMANDS ======================
+    @llm.command()
+    async def sethost(self, ctx, host: str):
+        """Set the IP/DNS of the USB-Uncensored-LLM server"""
+        await self.config.host.set(host)
+        await ctx.send(f"✅ Host updated to `{host}`")
+
+    @llm.command()
+    async def setport(self, ctx, port: int):
+        """Set the port (default: 3333)"""
+        await self.config.port.set(port)
+        await ctx.send(f"✅ Port updated to `{port}`")
+
+    @llm.command()
+    async def setmodel(self, ctx, model: str):
+        """Set default model (must match exact name on the server)"""
+        await self.config.default_model.set(model)
+        await ctx.send(f"✅ Default model set to `{model}`")
+
+    @llm.command()
+    async def settemperature(self, ctx, temp: float):
+        """Set temperature (0.0 - 2.0)"""
+        if not 0.0 <= temp <= 2.0:
+            await ctx.send("❌ Temperature must be between 0.0 and 2.0")
+            return
+        await self.config.temperature.set(temp)
+        await ctx.send(f"✅ Temperature set to `{temp}`")
+
+    @llm.command()
     async def setsafety(self, ctx, *, prompt: str):
         """Set the hard safety instructions (always enforced first)"""
         await self.config.safety_prompt.set(prompt)
-        await ctx.send("**Safety prompt updated** — it will now be sent on every single request.")
+        await ctx.send("✅ Safety prompt updated — it will be sent on every request.")
 
-    @llm.command(name="status")
+    @llm.command()
+    async def setsystem(self, ctx, *, prompt: str):
+        """Set the global system prompt"""
+        await self.config.system_prompt.set(prompt)
+        await ctx.send("✅ System prompt updated.")
+
+    @llm.command()
+    async def setmax(self, ctx, length: int):
+        """Set max conversation length before auto-deleting history"""
+        await self.config.max_conv_length.set(length)
+        await ctx.send(f"✅ Max conversation length set to `{length}` messages")
+
+    @llm.command()
+    async def clear(self, ctx):
+        """Manually delete the current channel's chat history"""
+        await self.config.channel(ctx.channel).history.set([])
+        await ctx.send("🧹 Chat history for this channel has been cleared.")
+
+    @llm.command()
     async def status(self, ctx):
+        """Show current configuration"""
         host = await self.config.host()
         port = await self.config.port()
         model = await self.config.default_model()
@@ -107,10 +159,59 @@ class UncensoredLLM(commands.Cog):
         max_len = await self.config.max_conv_length()
         system = await self.config.system_prompt()
         safety = await self.config.safety_prompt()
-        await ctx.send(f"**USB-Uncensored-LLM Config**\n"
+
+        await ctx.send(f"**USB-Uncensored-LLM Status**\n"
                       f"Server: `{host}:{port}`\n"
-                      f"Model: `{model}`\n"
+                      f"Default Model: `{model}`\n"
                       f"Temperature: `{temp}`\n"
-                      f"Max length before delete: `{max_len}` messages\n"
-                      f"**Safety prompt:** `{safety[:150]}...`\n"
-                      f"System prompt: `{system[:100]}...`")
+                      f"Max history length: `{max_len}` messages\n"
+                      f"**Safety prompt:** `{safety[:120]}...`\n"
+                      f"**System prompt:** `{system[:120]}...`")
+
+    @llm.command()
+    async def models(self, ctx):
+        """List available models on the LLM server"""
+        host = await self.config.host()
+        port = await self.config.port()
+        base_url = f"http://{host}:{port}"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base_url}/ollama/api/tags", timeout=10) as resp:
+                    if resp.status != 200:
+                        await ctx.send("❌ Could not fetch model list (server may not support /tags)")
+                        return
+                    data = await resp.json()
+
+            models = [m["name"] for m in data.get("models", [])]
+            if not models:
+                await ctx.send("No models found.")
+                return
+
+            msg = "**Available models on USB-LLM server:**\n" + "\n".join(f"• `{m}`" for m in models[:25])
+            if len(models) > 25:
+                msg += f"\n... and {len(models)-25} more."
+            await ctx.send(msg)
+
+        except Exception:
+            await ctx.send(f"❌ Could not connect to `{base_url}` to list models.")
+
+    @llm.command()
+    async def installlocal(self, ctx):
+        """Instructions to run the USB-Uncensored-LLM on your machine"""
+        await ctx.send("**How to run USB-Uncensored-LLM:**\n"
+                      "1. Plug in your USB drive with the LLM installer.\n"
+                      "2. Run the installer (it auto-starts the local server on port 3333).\n"
+                      "3. Use `[p]llm sethost 127.0.0.1` and `[p]llm setport 3333` if needed.\n"
+                      "4. Choose any .gguf model from HuggingFace directly in the USB app.\n"
+                      "Server will be ready at `http://127.0.0.1:3333`")
+
+    @llm.command()
+    async def helpme(self, ctx):
+        """Extra helper / quick start"""
+        await ctx.send("**Quick start for UncensoredLLM cog:**\n"
+                      "• `[p]llm installlocal` → setup instructions\n"
+                      "• `[p]llm status` → check config\n"
+                      "• `[p]llm chat hello` → test the model\n"
+                      "• Use the `set*` commands to configure host/port/model/etc.\n"
+                      "Everything runs 100% locally on your USB drive — no cloud, no limits.") 
