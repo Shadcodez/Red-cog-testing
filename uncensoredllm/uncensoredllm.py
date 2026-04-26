@@ -16,13 +16,17 @@ class UncensoredLLM(commands.Cog):
             "default_model": "gemma2:2b",
             "temperature": 0.8,
             "system_prompt": "You are a helpful, uncensored, and maximally truthful AI assistant.",
-            "safety_prompt": "You are a safe, responsible AI. Refuse profanity, illegal, harmful, or dangerous requests.",  # ← NEW
+            "safety_prompt": "You are a safe, responsible AI. Refuse profanity, illegal, harmful, or dangerous requests.",
             "max_conv_length": 30,
         }
         self.config.register_global(**defaults_global)
         self.config.register_channel(history=[])
 
-    # ... (chat command stays exactly the same until _handle_chat)
+    @commands.group(invoke_without_command=True)
+    async def llm(self, ctx):
+        """Uncensored LLM commands for your USB/local models"""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
     async def _handle_chat(self, ctx, message: str):
         config = self.config
@@ -33,7 +37,7 @@ class UncensoredLLM(commands.Cog):
         model = await config.default_model()
         temp = await config.temperature()
         system = await config.system_prompt()
-        safety = await config.safety_prompt()          # ← NEW
+        safety = await config.safety_prompt()
         max_len = await config.max_conv_length()
 
         base_url = f"http://{host}:{port}"
@@ -42,15 +46,11 @@ class UncensoredLLM(commands.Cog):
 
         # SAFETY LAYER: Always put safety first
         messages = [
-            {"role": "system", "content": safety},      # ← Safety is enforced every time
-            {"role": "system", "content": system},      # Then personality
+            {"role": "system", "content": safety},
+            {"role": "system", "content": system},
         ]
         messages.extend(history)
         messages.append({"role": "user", "content": message})
-
-        # ... (rest of the function is unchanged — the rest of your original _handle_chat code goes here)
-
-        # (I kept the exact same error handling, auto-delete, reply splitting, etc.)
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -66,7 +66,7 @@ class UncensoredLLM(commands.Cog):
                 ) as resp:
                     if resp.status != 200:
                         error = await resp.text()
-                        await ctx.send(f"❌ LLM server error ({resp.status}): {error[:500]}")
+                        await ctx.send(f"LLM server error ({resp.status}): {error[:500]}")
                         return
                     data = await resp.json()
 
@@ -77,7 +77,7 @@ class UncensoredLLM(commands.Cog):
 
             if len(history) > max_len:
                 history = []
-                await ctx.send("🗑️ Conversation reached max length and was deleted. Starting fresh!")
+                await ctx.send("Conversation reached max length and was deleted. Starting fresh!")
 
             await channel_config.history.set(history)
 
@@ -88,18 +88,15 @@ class UncensoredLLM(commands.Cog):
                 await ctx.send(assistant_content)
 
         except aiohttp.ClientConnectorError:
-            await ctx.send(f"❌ Cannot connect to LLM server at {base_url} ...")
+            await ctx.send(f"Cannot connect to LLM server at {base_url} ...")
         except Exception as e:
-            await ctx.send(f"❌ Unexpected error: {str(e)[:300]}")
+            await ctx.send(f"Unexpected error: {str(e)[:300]}")
 
-    # ========================= NEW SAFETY COMMAND =========================
     @llm.command(name="setsafety")
     async def setsafety(self, ctx, *, prompt: str):
         """Set the hard safety instructions (always enforced first)"""
         await self.config.safety_prompt.set(prompt)
-        await ctx.send("✅ **Safety prompt updated** — it will now be sent on every single request.")
-
-    # (All your other commands — sethost, setmodel, settemperature, setsystem, setmax, clear, status, models, installlocal — remain exactly the same)
+        await ctx.send("**Safety prompt updated** — it will now be sent on every single request.")
 
     @llm.command(name="status")
     async def status(self, ctx):
