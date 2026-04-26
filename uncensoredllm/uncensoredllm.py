@@ -233,7 +233,7 @@ class UncensoredLLM(commands.Cog):
 
     @uncensoredllm.command()
     async def status(self, ctx):
-        """Show current configuration (IP hidden for non-owners)"""
+        """Show current configuration (Security enabled for non-owners)"""
         host = await self.config.host()
         port = await self.config.port()
         api_prefix = await self.config.api_prefix()
@@ -247,7 +247,7 @@ class UncensoredLLM(commands.Cog):
         if await self.bot.is_owner(ctx.author):
             server_info = f"`{host}:{port}{api_prefix}`"
         else:
-            server_info = "Configured remote LLM server (IP hidden for security)"
+            server_info = "Configured remote LLM server (Security enabled)"
 
         await ctx.send(
             f"**UncensoredLLM Status**\n"
