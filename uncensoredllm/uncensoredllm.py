@@ -3,8 +3,8 @@ import aiohttp
 import asyncio
 from typing import List, Dict
 
-class USBUncensoredLLM(commands.Cog):
-    """Interface with USB-Uncensored-LLM (techjarves GitHub)"""
+class UncensoredLLM(commands.Cog):
+    """Interface with Uncensored-LLM (techjarves GitHub)"""
 
     def __init__(self, bot):
         self.bot = bot
