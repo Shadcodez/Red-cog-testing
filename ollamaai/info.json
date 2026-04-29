@@ -1,0 +1,27 @@
+{
+    "name": "OllamaAI",
+    "short": "AI-powered chat cog using Ollama for fully local LLM responses.",
+    "description": "A feature-rich AI chat cog that connects to a local Ollama instance to provide conversational AI responses in your Discord server. Supports per-guild configuration, personality/system prompts, conversation memory, trigger words, DM responses, model switching, temperature control, and mention-based replies. All AI processing runs locally via Ollama — no API keys or external services required.",
+    "end_user_data_statement": "This cog stores per-guild configuration (Ollama URL, model name, temperature, max tokens, system prompt, trigger words, toggle states) and short-term conversation history in memory. Conversation history is not persisted to disk and is lost on cog unload or bot restart. No user data is sent to external services; all AI inference is performed against a user-configured local Ollama instance.",
+    "install_msg": "OllamaAI has been installed!\n\nMake sure Ollama is running locally (`ollama serve`) and you have pulled a model (e.g. `ollama pull llama3.1`).\n\nRun `[p]ollamaset model llama3.1` to configure your model and `[p]ollamaset url http://localhost:11434/api/generate` if your Ollama URL differs from the default.\n\nUse `[p]help OllamaAI` to see all available commands.",
+    "author": [
+        "YourName"
+    ],
+    "required_cogs": {},
+    "requirements": [
+        "requests"
+    ],
+    "tags": [
+        "ai",
+        "ollama",
+        "chat",
+        "llm",
+        "local",
+        "conversational",
+        "fun"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
