@@ -135,7 +135,7 @@ class UncensoredLLM(commands.Cog):
 
             if len(history) > max_len:
                 history = history[-(max_len):]
-                await ctx.send("Conversation history was trimmed to stay within the max length.")
+                await ctx.send("...")
 
             await channel_config.history.set(history)
 
