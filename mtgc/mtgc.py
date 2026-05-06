@@ -138,8 +138,8 @@ BORDER_PALETTES = {
 class MTGCCog(commands.Cog):
     """MTGC — Magic: The Gathering Card Creator (Realistic Gradient Edition)"""
 
-    __author__ = "MTGC Community"
-    __version__ = "2.3.0"
+    __author__ = "SHADOW6six"
+    __version__ = "1.0.0"
 
     def __init__(self, bot):
         self.bot = bot
