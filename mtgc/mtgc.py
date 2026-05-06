@@ -136,10 +136,10 @@ BORDER_PALETTES = {
 # ─── Cog ────────────────────────────────────────────────────────────────────
 
 class MTGCCog(commands.Cog):
-    """MTGC — Magic: The Gathering Card Creator for fun"""
+    """MTGC — Magic: The Gathering Card Creator (Realistic Gradient Edition)"""
 
-    __author__ = "SHADOW6six"
-    __version__ = "2.4.0"
+    __author__ = "MTGC Community"
+    __version__ = "2.3.1"
 
     def __init__(self, bot):
         self.bot = bot
@@ -225,7 +225,6 @@ class MTGCCog(commands.Cog):
         title_font = _get_font(20)
         type_font = _get_font(16)
         body_font = _get_font(15)
-        flavor_font = _get_font(13)   # smaller for flavor text
         small_font = _get_font(10)
 
         title_color = palette["title_color"]
@@ -236,7 +235,6 @@ class MTGCCog(commands.Cog):
             draw.text((x + 1, y + 1), text, fill=shadow_color, font=font)
             draw.text((x, y), text, fill=color, font=font)
 
-        # Name + Mana
         name = params.get("name", "Unnamed Card")
         _shadow_text(28, 26, name, title_font, title_color)
 
@@ -245,37 +243,24 @@ class MTGCCog(commands.Cog):
             mana_w = _text_width(draw, mana, title_font)
             _shadow_text(CARD_W - 28 - mana_w, 26, mana, title_font, title_color)
 
-        # Type line
         type_line = params.get("type_line", "")
         if type_line:
             _shadow_text(28, 374, type_line, type_font, title_color)
 
-        # Rules text
         oracle = params.get("oracle_text", "")
-        y_pos = 416
         if oracle:
             wrapped_lines = textwrap.wrap(oracle, width=46)
+            y_pos = 416
             for line in wrapped_lines[:10]:
                 _shadow_text(34, y_pos, line, body_font, body_color)
                 y_pos += 20
 
-        # Flavor text (NEW)
-        flavor = params.get("flavor_text", "")
-        if flavor:
-            y_pos += 15  # spacing after rules
-            wrapped_flavor = textwrap.wrap(flavor, width=46)
-            for line in wrapped_flavor[:6]:
-                draw.text((34, y_pos), line, fill=body_color, font=flavor_font)
-                y_pos += 17
-
-        # Power / Toughness
         pt = params.get("power_toughness", "")
         if pt:
             pt_w = _text_width(draw, pt, title_font)
             pt_box_center = CARD_W - 128 + 54
             _shadow_text(pt_box_center - pt_w // 2, 629, pt, title_font, title_color)
 
-        # Footer
         draw.text((24, 663), "Custom MTG Card • MTGC", fill="#888888", font=small_font)
 
         output = io.BytesIO()
@@ -318,11 +303,11 @@ class MTGCCog(commands.Cog):
                 "🎨 **Step 1** — Select a frame style from the dropdown\n"
                 "📝 **Step 2** — Click **Set Parameters** to fill in card details\n"
                 "🖼️ **Step 3** — Click **Upload Art** and send your image\n\n"
-                "**Output:** 488×680 JPEG • Gradient borders + shadows + Flavor Text"
+                "**Output:** 488×680 JPEG • Gradient borders + shadows"
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.4.0")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.3.1")
         view = self._build_creator_view()
 
         creator_msg = await ctx.send(embed=embed, view=view)
@@ -386,7 +371,7 @@ class MTGCCog(commands.Cog):
                 color=color,
             )
             embed.set_image(url=f"attachment://{filename}")
-            embed.set_footer(text="MTGC • 488×680 JPEG • Gradient + Shadows + Flavor Text")
+            embed.set_footer(text="MTGC • 488×680 JPEG • Gradient + Shadows")
 
             await progress_msg.edit(content=None, embed=embed, attachments=[file])
 
@@ -473,13 +458,6 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
     mana_field = TextInput(label="Mana Cost (blank for lands)", placeholder="e.g. {3}{W}{W}", max_length=25, required=False)
     type_field = TextInput(label="Type Line", placeholder="e.g. Creature — Angel", max_length=55, required=True)
     oracle_field = TextInput(label="Rules Text (optional)", style=discord.TextStyle.paragraph, placeholder="e.g. Flying, vigilance...", max_length=500, required=False)
-    flavor_field = TextInput(          # ← NEW
-        label="Flavor Text (optional)",
-        style=discord.TextStyle.paragraph,
-        placeholder="e.g. The light of the angel burned brighter than the sun itself.",
-        max_length=300,
-        required=False,
-    )
     pt_field = TextInput(label="Power/Toughness (blank if not creature)", placeholder="e.g. 4/4", max_length=10, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -490,7 +468,6 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
             "mana_cost": self.mana_field.value.strip(),
             "type_line": self.type_field.value.strip(),
             "oracle_text": self.oracle_field.value.strip(),
-            "flavor_text": self.flavor_field.value.strip(),
             "power_toughness": self.pt_field.value.strip(),
         }
         await interaction.response.send_message("✅ **Parameters saved!** Proceed to **Step 3: Upload Art**.", ephemeral=True)
