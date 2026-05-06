@@ -84,7 +84,7 @@ def _rounded_rect(draw: ImageDraw.ImageDraw, coords, radius: int = 0, **kwargs):
     draw.rectangle(coords, **kwargs)
 
 
-# ─── Gradient Helpers (for realistic card borders) ──────────────────────────
+# ─── Gradient Helpers ───────────────────────────────────────────────────────
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     hex_color = hex_color.lstrip("#")
@@ -117,149 +117,19 @@ def _draw_vertical_gradient(
 # ─── Border Palettes ────────────────────────────────────────────────────────
 
 BORDER_PALETTES = {
-    "white": {
-        "outer": "#2B2B2B",
-        "frame": "#F5ECD7",
-        "accent": "#B8A44C",
-        "name_bg": "#FFFDF3",
-        "text_bg": "#FFFEF8",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "White / Plains frame",
-        "emoji": "\u2b1c",
-    },
-    "blue": {
-        "outer": "#1A1A2E",
-        "frame": "#0E4C7A",
-        "accent": "#3B9BD4",
-        "name_bg": "#D0E8F8",
-        "text_bg": "#E4F2FC",
-        "title_color": "#0A0A0A",
-        "body_color": "#1A1A1A",
-        "desc": "Blue / Island frame",
-        "emoji": "\U0001f7e6",
-    },
-    "black": {
-        "outer": "#0A0A0A",
-        "frame": "#1C1C1C",
-        "accent": "#5A5A5A",
-        "name_bg": "#2E2E2E",
-        "text_bg": "#383838",
-        "title_color": "#E8E8E8",
-        "body_color": "#D0D0D0",
-        "desc": "Black / Swamp frame",
-        "emoji": "\u2b1b",
-    },
-    "red": {
-        "outer": "#1A0A0A",
-        "frame": "#8B1A1A",
-        "accent": "#D4443C",
-        "name_bg": "#FCEAE8",
-        "text_bg": "#FDF2F0",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Red / Mountain frame",
-        "emoji": "\U0001f7e5",
-    },
-    "green": {
-        "outer": "#0A1A0A",
-        "frame": "#1B5E2E",
-        "accent": "#2EA84E",
-        "name_bg": "#D8F5E0",
-        "text_bg": "#E8FAF0",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Green / Forest frame",
-        "emoji": "\U0001f7e9",
-    },
-    "gold": {
-        "outer": "#2B2010",
-        "frame": "#A87B20",
-        "accent": "#E8C840",
-        "name_bg": "#FFF8E0",
-        "text_bg": "#FFFCF0",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Multicolor / Gold frame",
-        "emoji": "\U0001f7e1",
-    },
-    "artifact": {
-        "outer": "#2A2A2A",
-        "frame": "#7A7A7A",
-        "accent": "#A8A8A8",
-        "name_bg": "#EAEAEA",
-        "text_bg": "#F4F4F4",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Colorless / Artifact frame",
-        "emoji": "\u2699\ufe0f",
-    },
-    "land": {
-        "outer": "#2B2010",
-        "frame": "#6B5030",
-        "accent": "#B8943C",
-        "name_bg": "#F5ECDA",
-        "text_bg": "#FAF4E8",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Generic Land frame",
-        "emoji": "\U0001f3d4\ufe0f",
-    },
-    "planeswalker": {
-        "outer": "#10081A",
-        "frame": "#3A1A5A",
-        "accent": "#9A5CC8",
-        "name_bg": "#F0E8FA",
-        "text_bg": "#F6F0FD",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Planeswalker frame",
-        "emoji": "\U0001f52e",
-    },
-    "light": {
-        "outer": "#505050",
-        "frame": "#D8D8D8",
-        "accent": "#909090",
-        "name_bg": "#F8F8F8",
-        "text_bg": "#FDFDFD",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Light neutral frame",
-        "emoji": "\u2600\ufe0f",
-    },
-    "dark": {
-        "outer": "#080808",
-        "frame": "#1A1A1A",
-        "accent": "#444444",
-        "name_bg": "#252525",
-        "text_bg": "#2E2E2E",
-        "title_color": "#E8E8E8",
-        "body_color": "#D0D0D0",
-        "desc": "Dark neutral frame",
-        "emoji": "\U0001f319",
-    },
-    "modern": {
-        "outer": "#0C0C0C",
-        "frame": "#1A1A1A",
-        "accent": "#C8A84B",
-        "name_bg": "#141414",
-        "text_bg": "#1E1E1E",
-        "title_color": "#F0F0F0",
-        "body_color": "#D8D8D8",
-        "desc": "Sleek modern frame",
-        "emoji": "\u2728",
-    },
-    "classic": {
-        "outer": "#3B2F1E",
-        "frame": "#8B7355",
-        "accent": "#C8A84B",
-        "name_bg": "#F2E8D4",
-        "text_bg": "#F8F0E0",
-        "title_color": "#1A1A1A",
-        "body_color": "#222222",
-        "desc": "Traditional brown frame",
-        "emoji": "\U0001f4dc",
-    },
+    "white": {"outer": "#2B2B2B", "frame": "#F5ECD7", "accent": "#B8A44C", "name_bg": "#FFFDF3", "text_bg": "#FFFEF8", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "White / Plains frame", "emoji": "\u2b1c"},
+    "blue": {"outer": "#1A1A2E", "frame": "#0E4C7A", "accent": "#3B9BD4", "name_bg": "#D0E8F8", "text_bg": "#E4F2FC", "title_color": "#0A0A0A", "body_color": "#1A1A1A", "desc": "Blue / Island frame", "emoji": "\U0001f7e6"},
+    "black": {"outer": "#0A0A0A", "frame": "#1C1C1C", "accent": "#5A5A5A", "name_bg": "#2E2E2E", "text_bg": "#383838", "title_color": "#E8E8E8", "body_color": "#D0D0D0", "desc": "Black / Swamp frame", "emoji": "\u2b1b"},
+    "red": {"outer": "#1A0A0A", "frame": "#8B1A1A", "accent": "#D4443C", "name_bg": "#FCEAE8", "text_bg": "#FDF2F0", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Red / Mountain frame", "emoji": "\U0001f7e5"},
+    "green": {"outer": "#0A1A0A", "frame": "#1B5E2E", "accent": "#2EA84E", "name_bg": "#D8F5E0", "text_bg": "#E8FAF0", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Green / Forest frame", "emoji": "\U0001f7e9"},
+    "gold": {"outer": "#2B2010", "frame": "#A87B20", "accent": "#E8C840", "name_bg": "#FFF8E0", "text_bg": "#FFFCF0", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Multicolor / Gold frame", "emoji": "\U0001f7e1"},
+    "artifact": {"outer": "#2A2A2A", "frame": "#7A7A7A", "accent": "#A8A8A8", "name_bg": "#EAEAEA", "text_bg": "#F4F4F4", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Colorless / Artifact frame", "emoji": "\u2699\ufe0f"},
+    "land": {"outer": "#2B2010", "frame": "#6B5030", "accent": "#B8943C", "name_bg": "#F5ECDA", "text_bg": "#FAF4E8", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Generic Land frame", "emoji": "\U0001f3d4\ufe0f"},
+    "planeswalker": {"outer": "#10081A", "frame": "#3A1A5A", "accent": "#9A5CC8", "name_bg": "#F0E8FA", "text_bg": "#F6F0FD", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Planeswalker frame", "emoji": "\U0001f52e"},
+    "light": {"outer": "#505050", "frame": "#D8D8D8", "accent": "#909090", "name_bg": "#F8F8F8", "text_bg": "#FDFDFD", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Light neutral frame", "emoji": "\u2600\ufe0f"},
+    "dark": {"outer": "#080808", "frame": "#1A1A1A", "accent": "#444444", "name_bg": "#252525", "text_bg": "#2E2E2E", "title_color": "#E8E8E8", "body_color": "#D0D0D0", "desc": "Dark neutral frame", "emoji": "\U0001f319"},
+    "modern": {"outer": "#0C0C0C", "frame": "#1A1A1A", "accent": "#C8A84B", "name_bg": "#141414", "text_bg": "#1E1E1E", "title_color": "#F0F0F0", "body_color": "#D8D8D8", "desc": "Sleek modern frame", "emoji": "\u2728"},
+    "classic": {"outer": "#3B2F1E", "frame": "#8B7355", "accent": "#C8A84B", "name_bg": "#F2E8D4", "text_bg": "#F8F0E0", "title_color": "#1A1A1A", "body_color": "#222222", "desc": "Traditional brown frame", "emoji": "\U0001f4dc"},
 }
 
 
@@ -269,7 +139,7 @@ class MTGCCog(commands.Cog):
     """MTGC — Magic: The Gathering Card Creator (Realistic Gradient Edition)"""
 
     __author__ = "MTGC Community"
-    __version__ = "2.1.0"
+    __version__ = "2.2.0"
 
     def __init__(self, bot):
         self.bot = bot
@@ -279,11 +149,7 @@ class MTGCCog(commands.Cog):
         self.borders_path.mkdir(parents=True, exist_ok=True)
 
         self._sessions: Dict[int, dict] = {}
-        self._init_task: Optional[asyncio.Task] = asyncio.create_task(
-            self._ensure_borders()
-        )
-
-    # ─── Lifecycle ──────────────────────────────────────────────────────
+        self._init_task: Optional[asyncio.Task] = asyncio.create_task(self._ensure_borders())
 
     async def _ensure_borders(self):
         generated = 0
@@ -295,86 +161,33 @@ class MTGCCog(commands.Cog):
                 await asyncio.to_thread(self._save_border_file, path, palette)
                 generated += 1
             except Exception as exc:
-                self.logger.error(
-                    "MTGC: Failed to generate '%s' border: %s", style, exc
-                )
+                self.logger.error("MTGC: Failed to generate '%s' border: %s", style, exc)
         if generated:
             self.logger.info("MTGC: Generated %d border frame(s).", generated)
 
     @staticmethod
     def _save_border_file(path: Path, palette: dict):
-        """Generate border PNG with realistic vertical gradient."""
         img = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        # Outer border
         draw.rectangle([(0, 0), (CARD_W - 1, CARD_H - 1)], fill=palette["outer"])
 
-        # Inner frame with gradient (much more realistic)
         frame_box = (8, 8, CARD_W - 9, CARD_H - 9)
-        gradient_top = palette["frame"]
-        gradient_bot = _lighten_color(palette["frame"])
-        _draw_vertical_gradient(draw, frame_box, gradient_top, gradient_bot)
+        _draw_vertical_gradient(draw, frame_box, palette["frame"], _lighten_color(palette["frame"]))
 
-        # Accent outline
         draw.rectangle(frame_box, outline=palette["accent"], width=2)
 
-        # Name plate
-        _rounded_rect(
-            draw,
-            [(18, 16), (CARD_W - 19, 56)],
-            radius=5,
-            fill=palette["name_bg"],
-            outline=palette["accent"],
-            width=1,
-        )
-        # Type line plate
-        _rounded_rect(
-            draw,
-            [(18, 366), (CARD_W - 19, 398)],
-            radius=5,
-            fill=palette["name_bg"],
-            outline=palette["accent"],
-            width=1,
-        )
-        # Text box
-        _rounded_rect(
-            draw,
-            [(24, 406), (CARD_W - 25, 614)],
-            radius=5,
-            fill=palette["text_bg"],
-            outline=palette["accent"],
-            width=1,
-        )
-        # Power / Toughness box
-        _rounded_rect(
-            draw,
-            [(CARD_W - 128, 620), (CARD_W - 20, 656)],
-            radius=6,
-            fill=palette["name_bg"],
-            outline=palette["accent"],
-            width=2,
-        )
-        # Footer strip
-        draw.rectangle(
-            [(18, 660), (CARD_W - 19, CARD_H - 10)], fill=palette["name_bg"]
-        )
+        _rounded_rect(draw, [(18, 16), (CARD_W - 19, 56)], radius=5, fill=palette["name_bg"], outline=palette["accent"], width=1)
+        _rounded_rect(draw, [(18, 366), (CARD_W - 19, 398)], radius=5, fill=palette["name_bg"], outline=palette["accent"], width=1)
+        _rounded_rect(draw, [(24, 406), (CARD_W - 25, 614)], radius=5, fill=palette["text_bg"], outline=palette["accent"], width=1)
+        _rounded_rect(draw, [(CARD_W - 128, 620), (CARD_W - 20, 656)], radius=6, fill=palette["name_bg"], outline=palette["accent"], width=2)
+        draw.rectangle([(18, 660), (CARD_W - 19, CARD_H - 10)], fill=palette["name_bg"])
 
-        # Clear art area
         transparent_art = Image.new("RGBA", (ART_W, ART_H), (0, 0, 0, 0))
         img.paste(transparent_art, (ART_X, ART_Y))
 
-        # Art box outline
-        draw.rectangle(
-            [(ART_X - 3, ART_Y - 3), (ART_X + ART_W + 2, ART_Y + ART_H + 2)],
-            outline=palette["accent"],
-            width=2,
-        )
-        draw.rectangle(
-            [(ART_X - 1, ART_Y - 1), (ART_X + ART_W, ART_Y + ART_H)],
-            outline=palette["outer"],
-            width=1,
-        )
+        draw.rectangle([(ART_X - 3, ART_Y - 3), (ART_X + ART_W + 2, ART_Y + ART_H + 2)], outline=palette["accent"], width=2)
+        draw.rectangle([(ART_X - 1, ART_Y - 1), (ART_X + ART_W, ART_Y + ART_H)], outline=palette["outer"], width=1)
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -388,19 +201,15 @@ class MTGCCog(commands.Cog):
     async def red_delete_data_for_user(self, *, requester: str, user_id: int):
         self._sessions.pop(user_id, None)
 
-    # ─── Card Rendering ─────────────────────────────────────────────────
-
     def _render_card(self, art_bytes: bytes, border_style: str, params: dict) -> bytes:
         palette = BORDER_PALETTES.get(border_style, BORDER_PALETTES["light"])
 
-        # Load and resize art
         art = Image.open(io.BytesIO(art_bytes)).convert("RGBA")
         art = art.resize((ART_W, ART_H), Image.LANCZOS)
 
         card = Image.new("RGBA", (CARD_W, CARD_H), (235, 235, 235, 255))
         card.paste(art, (ART_X, ART_Y), art)
 
-        # Load gradient border
         border_path = self.borders_path / f"{border_style}.png"
         if border_path.exists():
             border_img = Image.open(border_path).convert("RGBA")
@@ -420,28 +229,24 @@ class MTGCCog(commands.Cog):
 
         title_color = palette["title_color"]
         body_color = palette["body_color"]
-        shadow_color = "#1A1A1A"  # soft shadow for depth
+        shadow_color = "#1A1A1A"
 
         def _shadow_text(x, y, text, font, color):
             draw.text((x + 1, y + 1), text, fill=shadow_color, font=font)
             draw.text((x, y), text, fill=color, font=font)
 
-        # Card name
         name = params.get("name", "Unnamed Card")
         _shadow_text(28, 26, name, title_font, title_color)
 
-        # Mana cost
         mana = params.get("mana_cost", "")
         if mana:
             mana_w = _text_width(draw, mana, title_font)
             _shadow_text(CARD_W - 28 - mana_w, 26, mana, title_font, title_color)
 
-        # Type line
         type_line = params.get("type_line", "")
         if type_line:
             _shadow_text(28, 374, type_line, type_font, title_color)
 
-        # Oracle text
         oracle = params.get("oracle_text", "")
         if oracle:
             wrapped_lines = textwrap.wrap(oracle, width=46)
@@ -450,27 +255,18 @@ class MTGCCog(commands.Cog):
                 _shadow_text(34, y_pos, line, body_font, body_color)
                 y_pos += 20
 
-        # Power / Toughness
         pt = params.get("power_toughness", "")
         if pt:
             pt_w = _text_width(draw, pt, title_font)
             pt_box_center = CARD_W - 128 + 54
             _shadow_text(pt_box_center - pt_w // 2, 629, pt, title_font, title_color)
 
-        # Footer
-        draw.text(
-            (24, 663),
-            "Custom MTG Card • MTGC",
-            fill="#888888",
-            font=small_font,
-        )
+        draw.text((24, 663), "Custom MTG Card • MTGC", fill="#888888", font=small_font)
 
         output = io.BytesIO()
         card_rgb.save(output, format="JPEG", quality=98)
         output.seek(0)
         return output.getvalue()
-
-    # ─── Embed Color Helper ─────────────────────────────────────────────
 
     async def _get_embed_color(self, destination) -> discord.Color:
         try:
@@ -481,8 +277,6 @@ class MTGCCog(commands.Cog):
             return await self.bot.get_embed_colour(destination)
         except (AttributeError, TypeError):
             return discord.Color(0x2B2D31)
-
-    # ─── View Factory ───────────────────────────────────────────────────
 
     def _build_creator_view(self) -> View:
         view = View(timeout=600)
@@ -500,6 +294,7 @@ class MTGCCog(commands.Cog):
 
     @mtgc.command(name="create")
     async def mtgc_create(self, ctx: commands.Context):
+        """Launch the MTG card creator (auto-cleans interactive embed)"""
         self._sessions.pop(ctx.author.id, None)
 
         embed = discord.Embed(
@@ -509,26 +304,22 @@ class MTGCCog(commands.Cog):
                 "🎨 **Step 1** — Select a frame style from the dropdown\n"
                 "📝 **Step 2** — Click **Set Parameters** to fill in card details\n"
                 "🖼️ **Step 3** — Click **Upload Art** and send your image\n\n"
-                "**Output:** 488×680 JPEG • 13 frame styles • Gradient borders"
+                "**Output:** 488×680 JPEG • Gradient borders + shadows"
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.1.0")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.2.0")
         view = self._build_creator_view()
-        await ctx.send(embed=embed, view=view)
+
+        creator_msg = await ctx.send(embed=embed, view=view)
+
+        # Store creator message ID so we can clean it up later
+        self._sessions[ctx.author.id] = {"creator_msg_id": creator_msg.id}
 
     @mtgc.command(name="borders")
     async def mtgc_borders(self, ctx: commands.Context):
-        lines = []
-        for style, palette in BORDER_PALETTES.items():
-            lines.append(
-                f"{palette['emoji']} **{style.capitalize()}** — {palette['desc']}"
-            )
-        embed = discord.Embed(
-            title="🎨 Available Frame Styles",
-            description="\n".join(lines),
-            color=await ctx.embed_color(),
-        )
+        lines = [f"{palette['emoji']} **{style.capitalize()}** — {palette['desc']}" for style, palette in BORDER_PALETTES.items()]
+        embed = discord.Embed(title="🎨 Available Frame Styles", description="\n".join(lines), color=await ctx.embed_color())
         embed.set_footer(text="Use [p]mtgc create to start building your card")
         await ctx.send(embed=embed)
 
@@ -536,23 +327,19 @@ class MTGCCog(commands.Cog):
     async def mtgc_info(self, ctx: commands.Context):
         embed = discord.Embed(
             title="ℹ️ MTGC — Information & Contact",
-            description=(
-                "**MTGC** is a realistic Magic: The Gathering card creator cog "
-                "for Red Discord Bot.\n\n"
-                "Gradient frames + text shadows for a premium look."
-            ),
+            description="Realistic MTG card creator with gradient frames and text shadows.\nAuto-cleans interactive messages.",
             color=await ctx.embed_color(),
         )
         embed.add_field(name="Version", value=self.__version__, inline=True)
         embed.add_field(name="Author", value=self.__author__, inline=True)
         embed.add_field(name="Requires", value="`pillow`", inline=True)
-        embed.set_footer(text="MTGC • Red-compatible • No user data stored")
+        embed.set_footer(text="MTGC • Red-compatible")
         await ctx.send(embed=embed)
 
     @mtgc.command(name="reset")
     async def mtgc_reset(self, ctx: commands.Context):
         if self._sessions.pop(ctx.author.id, None):
-            await ctx.send("🔄 Session cleared. Run `[p]mtgc create` to start fresh.")
+            await ctx.send("🔄 Session cleared.")
         else:
             await ctx.send("ℹ️ You don't have an active session.")
 
@@ -569,7 +356,6 @@ class MTGCCog(commands.Cog):
 
         uid = message.author.id
         session = self._sessions.get(uid)
-
         if not session or not session.get("awaiting"):
             return
         if session.get("channel") and message.channel.id != session["channel"]:
@@ -577,37 +363,26 @@ class MTGCCog(commands.Cog):
         if not message.attachments:
             return
 
-        attachment = None
-        for att in message.attachments:
-            if att.content_type and att.content_type.startswith("image/"):
-                attachment = att
-                break
-
-        if attachment is None:
+        attachment = next((att for att in message.attachments if att.content_type and att.content_type.startswith("image/")), None)
+        if not attachment:
             return
 
+        creator_msg_id = session.get("creator_msg_id")
         border_style = session.get("border", "light")
         params = session.get("params", {})
         self._sessions.pop(uid, None)
 
         if not params:
-            await message.reply(
-                "⚠️ No card parameters found. Please click **Set Parameters** first.",
-                mention_author=False,
-            )
+            await message.reply("⚠️ No card parameters found. Please click **Set Parameters** first.", mention_author=False)
             return
 
         progress_msg = await message.channel.send("🃏 Rendering your realistic card…")
 
         try:
             art_bytes = await attachment.read()
-            card_bytes = await asyncio.to_thread(
-                self._render_card, art_bytes, border_style, params
-            )
+            card_bytes = await asyncio.to_thread(self._render_card, art_bytes, border_style, params)
 
-            safe_name = "".join(
-                c for c in params.get("name", "card") if c.isalnum() or c in " _-"
-            ).strip()
+            safe_name = "".join(c for c in params.get("name", "card") if c.isalnum() or c in " _-").strip()
             filename = (safe_name.replace(" ", "_") or "mtgc_card") + ".jpg"
 
             file = discord.File(io.BytesIO(card_bytes), filename=filename)
@@ -615,10 +390,7 @@ class MTGCCog(commands.Cog):
             color = await self._get_embed_color(message.channel)
             embed = discord.Embed(
                 title=f"🃏 {params.get('name', 'Custom Card')}",
-                description=(
-                    f"**Frame:** {border_style.capitalize()}\n"
-                    f"**Type:** {params.get('type_line', '—')}"
-                ),
+                description=f"**Frame:** {border_style.capitalize()}\n**Type:** {params.get('type_line', '—')}",
                 color=color,
             )
             embed.set_image(url=f"attachment://{filename}")
@@ -626,54 +398,37 @@ class MTGCCog(commands.Cog):
 
             await progress_msg.edit(content=None, embed=embed, attachments=[file])
 
+            # ── CLEANUP: Remove the original interactive creator embed ──
+            if creator_msg_id:
+                try:
+                    creator_msg = await message.channel.fetch_message(creator_msg_id)
+                    await creator_msg.delete()
+                except (discord.NotFound, discord.HTTPException):
+                    pass
+
         except Exception as exc:
             self.logger.error("MTGC: Card render failed", exc_info=True)
-            await progress_msg.edit(
-                content="⚠️ An error occurred while rendering your card."
-            )
+            await progress_msg.edit(content="⚠️ An error occurred while rendering your card.")
 
-
-# ─── UI Components ──────────────────────────────────────────────────────────
+    # ─── UI Components ──────────────────────────────────────────────────────────
 
 class _BorderDropdown(Select):
     def __init__(self, cog: MTGCCog):
         self.cog = cog
-        options = [
-            discord.SelectOption(
-                label=style.capitalize(),
-                value=style,
-                description=palette["desc"],
-                emoji=palette["emoji"],
-            )
-            for style, palette in BORDER_PALETTES.items()
-        ]
-        super().__init__(
-            placeholder="🎨 Step 1: Select frame style…",
-            options=options,
-            min_values=1,
-            max_values=1,
-            row=0,
-        )
+        options = [discord.SelectOption(label=style.capitalize(), value=style, description=palette["desc"], emoji=palette["emoji"]) for style, palette in BORDER_PALETTES.items()]
+        super().__init__(placeholder="🎨 Step 1: Select frame style…", options=options, min_values=1, max_values=1, row=0)
 
     async def callback(self, interaction: discord.Interaction):
         uid = interaction.user.id
         if uid not in self.cog._sessions:
             self.cog._sessions[uid] = {}
         self.cog._sessions[uid]["border"] = self.values[0]
-        await interaction.response.send_message(
-            f"✅ Frame set to **{self.values[0].capitalize()}**. Proceed to Step 2!",
-            ephemeral=True,
-        )
+        await interaction.response.send_message(f"✅ Frame set to **{self.values[0].capitalize()}**. Proceed to Step 2!", ephemeral=True)
 
 
 class _ParamsButton(Button):
     def __init__(self, cog: MTGCCog):
-        super().__init__(
-            label="Step 2: Set Parameters",
-            style=discord.ButtonStyle.primary,
-            emoji="📝",
-            row=1,
-        )
+        super().__init__(label="Step 2: Set Parameters", style=discord.ButtonStyle.primary, emoji="📝", row=1)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
@@ -683,12 +438,7 @@ class _ParamsButton(Button):
 
 class _GenerateButton(Button):
     def __init__(self, cog: MTGCCog):
-        super().__init__(
-            label="Step 3: Upload Art",
-            style=discord.ButtonStyle.success,
-            emoji="🖼️",
-            row=1,
-        )
+        super().__init__(label="Step 3: Upload Art", style=discord.ButtonStyle.success, emoji="🖼️", row=1)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
@@ -696,10 +446,7 @@ class _GenerateButton(Button):
         session = self.cog._sessions.get(uid)
 
         if not session or "params" not in session:
-            await interaction.response.send_message(
-                "⚠️ Please complete **Step 2** first (Set Parameters).",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("⚠️ Please complete **Step 2** first (Set Parameters).", ephemeral=True)
             return
 
         if "border" not in session:
@@ -708,28 +455,23 @@ class _GenerateButton(Button):
         session["awaiting"] = True
         session["channel"] = interaction.channel_id
 
-        await interaction.response.send_message(
-            "🖼️ **Upload your art image now!**\n"
-            "Send a message with an attached image in this channel.",
-            ephemeral=True,
-        )
+        await interaction.response.send_message("🖼️ **Upload your art image now!**\nSend a message with an attached image in this channel.", ephemeral=True)
 
 
 class _CancelButton(Button):
     def __init__(self, cog: MTGCCog):
-        super().__init__(
-            label="Cancel",
-            style=discord.ButtonStyle.secondary,
-            emoji="❌",
-            row=2,
-        )
+        super().__init__(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌", row=2)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
         self.cog._sessions.pop(interaction.user.id, None)
-        await interaction.response.send_message(
-            "❌ Session cancelled.", ephemeral=True
-        )
+        await interaction.response.send_message("❌ Session cancelled.", ephemeral=True)
+
+        # Clean up the interactive creator embed
+        try:
+            await interaction.message.delete()
+        except (discord.NotFound, discord.HTTPException):
+            pass
 
 
 class _ParamsModal(Modal, title="📝 Card Parameters"):
@@ -738,37 +480,11 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
         self.cog = cog
         self.uid = user_id
 
-    name_field = TextInput(
-        label="Card Name",
-        placeholder="e.g. Serra Angel",
-        max_length=40,
-        required=True,
-    )
-    mana_field = TextInput(
-        label="Mana Cost (blank for lands)",
-        placeholder="e.g. {3}{W}{W}",
-        max_length=25,
-        required=False,
-    )
-    type_field = TextInput(
-        label="Type Line",
-        placeholder="e.g. Creature — Angel",
-        max_length=55,
-        required=True,
-    )
-    oracle_field = TextInput(
-        label="Rules Text (optional)",
-        style=discord.TextStyle.paragraph,
-        placeholder="e.g. Flying, vigilance...",
-        max_length=500,
-        required=False,
-    )
-    pt_field = TextInput(
-        label="Power/Toughness (blank if not creature)",
-        placeholder="e.g. 4/4",
-        max_length=10,
-        required=False,
-    )
+    name_field = TextInput(label="Card Name", placeholder="e.g. Serra Angel", max_length=40, required=True)
+    mana_field = TextInput(label="Mana Cost (blank for lands)", placeholder="e.g. {3}{W}{W}", max_length=25, required=False)
+    type_field = TextInput(label="Type Line", placeholder="e.g. Creature — Angel", max_length=55, required=True)
+    oracle_field = TextInput(label="Rules Text (optional)", style=discord.TextStyle.paragraph, placeholder="e.g. Flying, vigilance...", max_length=500, required=False)
+    pt_field = TextInput(label="Power/Toughness (blank if not creature)", placeholder="e.g. 4/4", max_length=10, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
         if self.uid not in self.cog._sessions:
@@ -780,15 +496,12 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
             "oracle_text": self.oracle_field.value.strip(),
             "power_toughness": self.pt_field.value.strip(),
         }
-        await interaction.response.send_message(
-            "✅ **Parameters saved!** Proceed to **Step 3: Upload Art**.",
-            ephemeral=True,
-        )
+        await interaction.response.send_message("✅ **Parameters saved!** Proceed to **Step 3: Upload Art**.", ephemeral=True)
 
 
 # ─── Setup ──────────────────────────────────────────────────────────────────
 
 async def setup(bot):
-    """Required by Red Discord Bot to load the cog."""
+    """Required by Red Discord Bot."""
     cog = MTGCCog(bot)
     await bot.add_cog(cog)
