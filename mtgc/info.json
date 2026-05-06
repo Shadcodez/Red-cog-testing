@@ -1,26 +1,14 @@
-# ====================== info.json ======================
 {
-    "author": [
-        "SHADOW6six"
-    ],
-    "description": "Modern, polished Magic: The Gathering card creator. Interactive dropdown + modal workflow. Any uploaded image becomes the card art. Full selection of every border style. Auto-downloads assets. Outputs exact 488×680 96dpi JPG.",
-    "end_user_data_statement": "This cog only temporarily stores card creation parameters in memory for the duration of the interactive session (cleared immediately after card generation). No persistent user data is stored.",
-    "install_msg": "✅ MTGC cog installed successfully!\nUse `[p]mtgc create` to start making custom cards.",
-    "min_bot_version": "3.5.0",
+    "author": ["SHADOW6six"],
+    "install_msg": "MTGC installed successfully!\nUse `[p]mtgc` to start creating custom MTG cards.\nUse `[p]help mtgc` to see all available commands.\n\nRequires: pillow (`[p]pipinstall pillow`)",
     "name": "MTGC",
-    "permissions": [],
-    "requirements": [
-        "pillow"
-    ],
-    "short": "MTG Card Creator • Every border style • 488×680 JPG",
-    "tags": [
-        "mtg",
-        "magic",
-        "card",
-        "generator",
-        "image",
-        "art",
-        "border"
-    ],
-    "version": "1.2.0"
+    "short": "Create custom Magic: The Gathering cards with uploaded art.",
+    "description": "A polished MTG card creator with 13 frame styles, interactive modal workflow, and automatic border generation. Upload any image as card art and receive a 488x680 JPEG card.",
+    "tags": ["mtg", "cards", "image", "generator", "magic", "custom"],
+    "requirements": ["pillow"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG",
+    "end_user_data_statement": "This cog stores no persistent user data. Card creation parameters are held in memory only for the duration of the interactive session and cleared immediately after card generation or session timeout."
 }
