@@ -6,7 +6,7 @@
     "description": "A polished MTG card creator with 13 frame styles, interactive modal workflow, and automatic border generation. Upload any image as card art and receive a 488x680 JPEG card.",
     "tags": ["mtg", "cards", "image", "generator", "magic", "custom"],
     "requirements": ["pillow"],
-    "min_bot_version": "3.5.0",
+    "min_bot_version": "3.5.1",
     "hidden": false,
     "disabled": false,
     "type": "COG",
