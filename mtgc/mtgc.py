@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+import re
 import textwrap
 from pathlib import Path
 from typing import Dict, Optional
@@ -84,34 +85,35 @@ def _rounded_rect(draw: ImageDraw.ImageDraw, coords, radius: int = 0, **kwargs):
     draw.rectangle(coords, **kwargs)
 
 
-# ─── Gradient Helpers ───────────────────────────────────────────────────────
+# ─── Mana Symbol Colors ─────────────────────────────────────────────────────
 
-def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
-    hex_color = hex_color.lstrip("#")
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
-
-def _lighten_color(hex_color: str, factor: float = 0.18) -> str:
-    r, g, b = _hex_to_rgb(hex_color)
-    r = int(r + (255 - r) * factor)
-    g = int(g + (255 - g) * factor)
-    b = int(b + (255 - b) * factor)
-    return f"#{r:02x}{g:02x}{b:02x}"
+MANA_COLORS = {
+    "W": "#F5F0E8", "U": "#0E4C7A", "B": "#1C1C1C", "R": "#8B1A1A",
+    "G": "#1B5E2E", "C": "#7A7A7A", "P": "#D4443C",
+}
 
 
-def _draw_vertical_gradient(
-    draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], color1: str, color2: str
-):
-    x1, y1, x2, y2 = box
-    rgb1 = _hex_to_rgb(color1)
-    rgb2 = _hex_to_rgb(color2)
-    height = max(1, y2 - y1)
-    for i in range(height):
-        ratio = i / height
-        r = int(rgb1[0] * (1 - ratio) + rgb2[0] * ratio)
-        g = int(rgb1[1] * (1 - ratio) + rgb2[1] * ratio)
-        b = int(rgb1[2] * (1 - ratio) + rgb2[2] * ratio)
-        draw.line([(x1, y1 + i), (x2, y1 + i)], fill=(r, g, b))
+def _draw_mana_cost(draw: ImageDraw.ImageDraw, start_x: int, y: int, mana_str: str) -> int:
+    if not mana_str:
+        return 0
+    symbols = re.findall(r'\{([^{}]+)\}', mana_str.upper())
+    if not symbols:
+        symbols = [mana_str.upper()]
+
+    symbol_w = 26
+    total_w = len(symbols) * symbol_w
+    x = start_x - total_w
+
+    for sym in symbols:
+        color = MANA_COLORS.get(sym, "#A8A8A8")
+        draw.ellipse((x, y - 2, x + 24, y + 22), fill=color, outline="#1A1A1A", width=2)
+        letter_font = _get_font(16)
+        letter_w = _text_width(draw, sym, letter_font)
+        text_color = "#1A1A1A" if sym == "W" else "#FFFFFF"
+        draw.text((x + 12 - letter_w // 2, y + 1), sym, fill=text_color, font=letter_font)
+        x += symbol_w
+
+    return total_w
 
 
 # ─── Border Palettes ────────────────────────────────────────────────────────
@@ -136,10 +138,10 @@ BORDER_PALETTES = {
 # ─── Cog ────────────────────────────────────────────────────────────────────
 
 class MTGCCog(commands.Cog):
-    """MTGC — Magic: The Gathering Card Creator (Realistic Gradient Edition)"""
+    """MTGC — Magic: The Gathering Card Creator (Realistic Gradient + Foil Edition)"""
 
     __author__ = "SHADOW6six"
-    __version__ = "1.0.0"
+    __version__ = "1.0.1"
 
     def __init__(self, bot):
         self.bot = bot
@@ -235,18 +237,26 @@ class MTGCCog(commands.Cog):
             draw.text((x + 1, y + 1), text, fill=shadow_color, font=font)
             draw.text((x, y), text, fill=color, font=font)
 
+        # Legendary Crown
+        type_line = params.get("type_line", "")
+        if "legendary" in type_line.lower():
+            crown_font = _get_font(28)
+            draw.text((28, 8), "👑", fill="#E8C840", font=crown_font)
+
+        # Card Name
         name = params.get("name", "Unnamed Card")
         _shadow_text(28, 26, name, title_font, title_color)
 
+        # Mana Cost (proper symbols)
         mana = params.get("mana_cost", "")
         if mana:
-            mana_w = _text_width(draw, mana, title_font)
-            _shadow_text(CARD_W - 28 - mana_w, 26, mana, title_font, title_color)
+            _draw_mana_cost(draw, CARD_W - 28, 26, mana)
 
-        type_line = params.get("type_line", "")
+        # Type Line
         if type_line:
             _shadow_text(28, 374, type_line, type_font, title_color)
 
+        # Oracle Text
         oracle = params.get("oracle_text", "")
         if oracle:
             wrapped_lines = textwrap.wrap(oracle, width=46)
@@ -255,13 +265,37 @@ class MTGCCog(commands.Cog):
                 _shadow_text(34, y_pos, line, body_font, body_color)
                 y_pos += 20
 
+        # Power / Toughness
         pt = params.get("power_toughness", "")
         if pt:
             pt_w = _text_width(draw, pt, title_font)
             pt_box_center = CARD_W - 128 + 54
             _shadow_text(pt_box_center - pt_w // 2, 629, pt, title_font, title_color)
 
-        draw.text((24, 663), "Custom MTG Card • MTGC", fill="#888888", font=small_font)
+        # Rarity Symbol
+        rarity = params.get("rarity", "Rare")
+        rarity_map = {"Common": ("#222222", "●"), "Uncommon": ("#A8A8A8", "◆"), "Rare": ("#E8C840", "★"), "Mythic": ("#FF6A00", "✦")}
+        r_color, r_symbol = rarity_map.get(rarity, rarity_map["Rare"])
+        if pt:
+            draw.text((CARD_W - 170, 629), r_symbol, fill=r_color, font=_get_font(18))
+
+        # Artist Credit + Footer
+        artist = params.get("artist", "Unknown Artist")
+        draw.text((24, 663), f"Illus. by {artist}", fill="#888888", font=small_font)
+
+        custom_text = "Custom MTG Card • MTGC"
+        custom_w = _text_width(draw, custom_text, small_font)
+        draw.text((CARD_W - 24 - custom_w, 663), custom_text, fill="#888888", font=small_font)
+
+        # Foil / Holographic Shine Effect
+        card_rgba = card_rgb.convert("RGBA")
+        foil = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
+        fdraw = ImageDraw.Draw(foil)
+        for offset in range(-CARD_W, CARD_H, 3):
+            alpha = 25 if (offset // 3) % 4 == 0 else 8
+            fdraw.line([(offset, 0), (offset + CARD_H, CARD_H)], fill=(255, 255, 255, alpha), width=3)
+        card_rgba = Image.alpha_composite(card_rgba, foil)
+        card_rgb = card_rgba.convert("RGB")
 
         output = io.BytesIO()
         card_rgb.save(output, format="JPEG", quality=98)
@@ -290,29 +324,24 @@ class MTGCCog(commands.Cog):
 
     @commands.group(name="mtgc", invoke_without_command=True)
     async def mtgc(self, ctx: commands.Context):
-        """MTGC — Magic: The Gathering Card Creator
-
-        Running this command without a subcommand launches the interactive creator.
-        """
         await self.mtgc_create(ctx)
 
     @mtgc.command(name="create")
     async def mtgc_create(self, ctx: commands.Context):
-        """Launch the interactive MTG card creator."""
         self._sessions.pop(ctx.author.id, None)
 
         embed = discord.Embed(
             title="🃏 MTG Card Creator",
             description=(
                 "Create a custom Magic: The Gathering card in three easy steps:\n\n"
-                "🎨 **Step 1** — Select a frame style from the dropdown\n"
-                "📝 **Step 2** — Click **Set Parameters** to fill in card details\n"
-                "🖼️ **Step 3** — Click **Upload Art** and send your image\n\n"
-                "**Output:** 488×680 JPEG • Gradient borders + shadows"
+                "🎨 **Step 1** — Select a frame style\n"
+                "📝 **Step 2** — Click **Set Parameters**\n"
+                "🖼️ **Step 3** — Upload your image\n\n"
+                "**Features:** Foil shine • Proper mana symbols • Legendary crown • Artist credit • Rarity"
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.3.0")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.4.1")
         view = self._build_creator_view()
 
         creator_msg = await ctx.send(embed=embed, view=view)
@@ -320,7 +349,6 @@ class MTGCCog(commands.Cog):
 
     @mtgc.command(name="borders")
     async def mtgc_borders(self, ctx: commands.Context):
-        """List all available frame styles."""
         lines = [f"{palette['emoji']} **{style.capitalize()}** — {palette['desc']}" for style, palette in BORDER_PALETTES.items()]
         embed = discord.Embed(
             title="🎨 Available Frame Styles",
@@ -329,6 +357,14 @@ class MTGCCog(commands.Cog):
         )
         embed.set_footer(text="Use [p]mtgc create to start building your card")
         await ctx.send(embed=embed)
+
+    @mtgc.command(name="reset")
+    async def mtgc_reset(self, ctx: commands.Context):
+        """Clear your current card creation session."""
+        if self._sessions.pop(ctx.author.id, None):
+            await ctx.send("🔄 Session cleared. Run `[p]mtgc create` to start fresh.")
+        else:
+            await ctx.send("ℹ️ You don't have an active session.")
 
     # ─── Message Listener ───────────────────────────────────────────────
 
@@ -377,11 +413,10 @@ class MTGCCog(commands.Cog):
                 color=color,
             )
             embed.set_image(url=f"attachment://{filename}")
-            embed.set_footer(text="MTGC • 488×680 JPEG • Gradient + Shadows")
+            embed.set_footer(text="MTGC • 488×680 JPEG • Gradient + Foil")
 
             await progress_msg.edit(content=None, embed=embed, attachments=[file])
 
-            # Clean up the interactive creator embed
             if creator_msg_id:
                 try:
                     creator_msg = await message.channel.fetch_message(creator_msg_id)
@@ -464,9 +499,9 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
 
     name_field = TextInput(label="Card Name", placeholder="e.g. Serra Angel", max_length=40, required=True)
     mana_field = TextInput(label="Mana Cost (blank for lands)", placeholder="e.g. {3}{W}{W}", max_length=25, required=False)
-    type_field = TextInput(label="Type Line", placeholder="e.g. Creature — Angel", max_length=55, required=True)
+    type_field = TextInput(label="Type Line", placeholder="e.g. Legendary Creature — Angel", max_length=55, required=True)
     oracle_field = TextInput(label="Rules Text (optional)", style=discord.TextStyle.paragraph, placeholder="e.g. Flying, vigilance...", max_length=500, required=False)
-    pt_field = TextInput(label="Power/Toughness (blank if not creature)", placeholder="e.g. 4/4", max_length=10, required=False)
+    artist_field = TextInput(label="Artist Credit (optional)", placeholder="e.g. Mark Zug or @yourusername", max_length=40, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
         if self.uid not in self.cog._sessions:
@@ -476,7 +511,9 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
             "mana_cost": self.mana_field.value.strip(),
             "type_line": self.type_field.value.strip(),
             "oracle_text": self.oracle_field.value.strip(),
-            "power_toughness": self.pt_field.value.strip(),
+            "power_toughness": "",
+            "artist": self.artist_field.value.strip() or "Unknown Artist",
+            "rarity": "Rare",
         }
         await interaction.response.send_message("✅ **Parameters saved!** Proceed to **Step 3: Upload Art**.", ephemeral=True)
 
@@ -484,6 +521,5 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
 # ─── Setup ──────────────────────────────────────────────────────────────────
 
 async def setup(bot):
-    """Required by Red Discord Bot."""
     cog = MTGCCog(bot)
     await bot.add_cog(cog)
