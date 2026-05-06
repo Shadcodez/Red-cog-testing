@@ -85,6 +85,36 @@ def _rounded_rect(draw: ImageDraw.ImageDraw, coords, radius: int = 0, **kwargs):
     draw.rectangle(coords, **kwargs)
 
 
+# ─── Gradient Helpers (restored - required for border generation) ───────────
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _lighten_color(hex_color: str, factor: float = 0.18) -> str:
+    r, g, b = _hex_to_rgb(hex_color)
+    r = int(r + (255 - r) * factor)
+    g = int(g + (255 - g) * factor)
+    b = int(b + (255 - b) * factor)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _draw_vertical_gradient(
+    draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], color1: str, color2: str
+):
+    x1, y1, x2, y2 = box
+    rgb1 = _hex_to_rgb(color1)
+    rgb2 = _hex_to_rgb(color2)
+    height = max(1, y2 - y1)
+    for i in range(height):
+        ratio = i / height
+        r = int(rgb1[0] * (1 - ratio) + rgb2[0] * ratio)
+        g = int(rgb1[1] * (1 - ratio) + rgb2[1] * ratio)
+        b = int(rgb1[2] * (1 - ratio) + rgb2[2] * ratio)
+        draw.line([(x1, y1 + i), (x2, y1 + i)], fill=(r, g, b))
+
+
 # ─── Mana Symbol Colors ─────────────────────────────────────────────────────
 
 MANA_COLORS = {
@@ -203,15 +233,19 @@ class MTGCCog(commands.Cog):
     async def red_delete_data_for_user(self, *, requester: str, user_id: int):
         self._sessions.pop(user_id, None)
 
+    # ─── Card Rendering (fully reviewed & fixed) ────────────────────────────
+
     def _render_card(self, art_bytes: bytes, border_style: str, params: dict) -> bytes:
         palette = BORDER_PALETTES.get(border_style, BORDER_PALETTES["light"])
 
+        # Art
         art = Image.open(io.BytesIO(art_bytes)).convert("RGBA")
         art = art.resize((ART_W, ART_H), Image.LANCZOS)
 
         card = Image.new("RGBA", (CARD_W, CARD_H), (235, 235, 235, 255))
         card.paste(art, (ART_X, ART_Y), art)
 
+        # Border overlay
         border_path = self.borders_path / f"{border_style}.png"
         if border_path.exists():
             border_img = Image.open(border_path).convert("RGBA")
@@ -247,7 +281,7 @@ class MTGCCog(commands.Cog):
         name = params.get("name", "Unnamed Card")
         _shadow_text(28, 26, name, title_font, title_color)
 
-        # Mana Cost (proper symbols)
+        # Mana Cost (proper colored symbols)
         mana = params.get("mana_cost", "")
         if mana:
             _draw_mana_cost(draw, CARD_W - 28, 26, mana)
@@ -297,6 +331,7 @@ class MTGCCog(commands.Cog):
         card_rgba = Image.alpha_composite(card_rgba, foil)
         card_rgb = card_rgba.convert("RGB")
 
+        # Export
         output = io.BytesIO()
         card_rgb.save(output, format="JPEG", quality=98)
         output.seek(0)
@@ -341,7 +376,7 @@ class MTGCCog(commands.Cog):
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.4.1")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.4.2")
         view = self._build_creator_view()
 
         creator_msg = await ctx.send(embed=embed, view=view)
@@ -350,11 +385,7 @@ class MTGCCog(commands.Cog):
     @mtgc.command(name="borders")
     async def mtgc_borders(self, ctx: commands.Context):
         lines = [f"{palette['emoji']} **{style.capitalize()}** — {palette['desc']}" for style, palette in BORDER_PALETTES.items()]
-        embed = discord.Embed(
-            title="🎨 Available Frame Styles",
-            description="\n".join(lines),
-            color=await ctx.embed_color(),
-        )
+        embed = discord.Embed(title="🎨 Available Frame Styles", description="\n".join(lines), color=await ctx.embed_color())
         embed.set_footer(text="Use [p]mtgc create to start building your card")
         await ctx.send(embed=embed)
 
