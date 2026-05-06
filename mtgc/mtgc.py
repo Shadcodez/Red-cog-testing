@@ -31,20 +31,12 @@ class MTGCCog(commands.Cog):
         self.borders_path.mkdir(parents=True, exist_ok=True)
 
         self.border_urls = {
-            "light": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/border.png",
-            "dark": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/grass.png",
-            "modern": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/water.png",
-            "classic": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/sand.png",
-            "old": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/border_old.png",
-            "original": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/border_orig.png",
-            "white": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/border.png",
-            "blue": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/water.png",
-            "black": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/grass.png",
-            "red": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/sand.png",
-            "green": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/border.png",
-            "artifact": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/border_old.png",
-            "land": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/sand.png",
-            "planeswalker": "https://raw.githubusercontent.com/Andrettin/Wyrmsun/master/graphics/terrain/border_orig.png",
+            "white": "https://raw.githubusercontent.com/Shadcodez/Red-cog-testing/refs/heads/main/MTG%20PNG%20Templates/Light.png",
+            "blue": "https://raw.githubusercontent.com/Shadcodez/Red-cog-testing/refs/heads/main/MTG%20PNG%20Templates/Blue.png",
+            "black": "https://raw.githubusercontent.com/Shadcodez/Red-cog-testing/refs/heads/main/MTG%20PNG%20Templates/Dark.png",
+            "red": "https://raw.githubusercontent.com/Shadcodez/Red-cog-testing/refs/heads/main/MTG%20PNG%20Templates/Red.png",
+            "green": "https://raw.githubusercontent.com/Shadcodez/Red-cog-testing/refs/heads/main/MTG%20PNG%20Templates/Green.png",
+            "artifact": "https://raw.githubusercontent.com/Shadcodez/Red-cog-testing/refs/heads/main/MTG%20PNG%20Templates/Artifact.png",
         }
 
         self.user_border: dict[int, str] = {}
@@ -83,20 +75,12 @@ class MTGCCog(commands.Cog):
         class BorderSelect(Select):
             def __init__(self, cog):
                 options = [
-                    discord.SelectOption(label="Light", value="light", description="Light border"),
-                    discord.SelectOption(label="Dark", value="dark", description="Dark border"),
-                    discord.SelectOption(label="Modern", value="modern", description="Modern border"),
-                    discord.SelectOption(label="Classic", value="classic", description="Classic border"),
-                    discord.SelectOption(label="Old", value="old", description="Old-style border"),
-                    discord.SelectOption(label="Original", value="original", description="Original border"),
                     discord.SelectOption(label="White", value="white", description="White frame"),
                     discord.SelectOption(label="Blue", value="blue", description="Blue frame"),
                     discord.SelectOption(label="Black", value="black", description="Black frame"),
                     discord.SelectOption(label="Red", value="red", description="Red frame"),
                     discord.SelectOption(label="Green", value="green", description="Green frame"),
                     discord.SelectOption(label="Artifact", value="artifact", description="Artifact frame"),
-                    discord.SelectOption(label="Land", value="land", description="Land frame"),
-                    discord.SelectOption(label="Planeswalker", value="planeswalker", description="Planeswalker frame"),
                 ]
                 super().__init__(placeholder="Select Border Style (Every option available)", options=options, min_values=1, max_values=1)
                 self.cog = cog
