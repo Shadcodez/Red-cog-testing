@@ -136,10 +136,10 @@ BORDER_PALETTES = {
 # ─── Cog ────────────────────────────────────────────────────────────────────
 
 class MTGCCog(commands.Cog):
-    """MTGC — Magic: The Gathering Card Creator"""
+    """MTGC — Magic: The Gathering Card Creator (Realistic Gradient Edition)"""
 
-    __author__ = "SHADOW6six"
-    __version__ = "3.5.1"
+    __author__ = "MTGC Community"
+    __version__ = "2.3.0"
 
     def __init__(self, bot):
         self.bot = bot
@@ -211,7 +211,12 @@ class MTGCCog(commands.Cog):
         card.paste(art, (ART_X, ART_Y), art)
 
         border_path = self.borders_path / f"{border_style}.png"
-        border_img = Image.open(border_path).convert("RGBA")
+        if border_path.exists():
+            border_img = Image.open(border_path).convert("RGBA")
+        else:
+            border_img = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
+            fallback_draw = ImageDraw.Draw(border_img)
+            fallback_draw.rectangle([(0, 0), (CARD_W - 1, CARD_H - 1)], outline="#1A1A1A", width=10)
 
         card = Image.alpha_composite(card, border_img)
         card_rgb = card.convert("RGB")
@@ -281,25 +286,33 @@ class MTGCCog(commands.Cog):
         view.add_item(_CancelButton(self))
         return view
 
+    # ─── Commands ───────────────────────────────────────────────────────
+
     @commands.group(name="mtgc", invoke_without_command=True)
     async def mtgc(self, ctx: commands.Context):
+        """MTGC — Magic: The Gathering Card Creator
+
+        Running this command without a subcommand launches the interactive creator.
+        """
         await self.mtgc_create(ctx)
 
     @mtgc.command(name="create")
     async def mtgc_create(self, ctx: commands.Context):
+        """Launch the interactive MTG card creator."""
         self._sessions.pop(ctx.author.id, None)
 
         embed = discord.Embed(
             title="🃏 MTG Card Creator",
             description=(
                 "Create a custom Magic: The Gathering card in three easy steps:\n\n"
-                "🎨 **Step 1** — Select a frame style\n"
-                "📝 **Step 2** — Click **Set Parameters**\n"
-                "🖼️ **Step 3** — Click **Upload Art**"
+                "🎨 **Step 1** — Select a frame style from the dropdown\n"
+                "📝 **Step 2** — Click **Set Parameters** to fill in card details\n"
+                "🖼️ **Step 3** — Click **Upload Art** and send your image\n\n"
+                "**Output:** 488×680 JPEG • Gradient borders + shadows"
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.3.2")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.3.0")
         view = self._build_creator_view()
 
         creator_msg = await ctx.send(embed=embed, view=view)
@@ -307,10 +320,17 @@ class MTGCCog(commands.Cog):
 
     @mtgc.command(name="borders")
     async def mtgc_borders(self, ctx: commands.Context):
+        """List all available frame styles."""
         lines = [f"{palette['emoji']} **{style.capitalize()}** — {palette['desc']}" for style, palette in BORDER_PALETTES.items()]
-        embed = discord.Embed(title="🎨 Available Frame Styles", description="\n".join(lines), color=await ctx.embed_color())
+        embed = discord.Embed(
+            title="🎨 Available Frame Styles",
+            description="\n".join(lines),
+            color=await ctx.embed_color(),
+        )
         embed.set_footer(text="Use [p]mtgc create to start building your card")
         await ctx.send(embed=embed)
+
+    # ─── Message Listener ───────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -361,6 +381,7 @@ class MTGCCog(commands.Cog):
 
             await progress_msg.edit(content=None, embed=embed, attachments=[file])
 
+            # Clean up the interactive creator embed
             if creator_msg_id:
                 try:
                     creator_msg = await message.channel.fetch_message(creator_msg_id)
@@ -428,6 +449,7 @@ class _CancelButton(Button):
     async def callback(self, interaction: discord.Interaction):
         self.cog._sessions.pop(interaction.user.id, None)
         await interaction.response.send_message("❌ Session cancelled.", ephemeral=True)
+
         try:
             await interaction.message.delete()
         except (discord.NotFound, discord.HTTPException):
@@ -462,5 +484,6 @@ class _ParamsModal(Modal, title="📝 Card Parameters"):
 # ─── Setup ──────────────────────────────────────────────────────────────────
 
 async def setup(bot):
+    """Required by Red Discord Bot."""
     cog = MTGCCog(bot)
     await bot.add_cog(cog)
