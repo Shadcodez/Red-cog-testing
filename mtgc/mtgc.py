@@ -139,7 +139,7 @@ class MTGCCog(commands.Cog):
     """MTGC — Magic: The Gathering Card Creator (Realistic Gradient Edition)"""
 
     __author__ = "MTGC Community"
-    __version__ = "2.2.0"
+    __version__ = "2.3.0"
 
     def __init__(self, bot):
         self.bot = bot
@@ -290,11 +290,15 @@ class MTGCCog(commands.Cog):
 
     @commands.group(name="mtgc", invoke_without_command=True)
     async def mtgc(self, ctx: commands.Context):
+        """MTGC — Magic: The Gathering Card Creator
+
+        Running this command without a subcommand launches the interactive creator.
+        """
         await self.mtgc_create(ctx)
 
     @mtgc.command(name="create")
     async def mtgc_create(self, ctx: commands.Context):
-        """Launch the MTG card creator (auto-cleans interactive embed)"""
+        """Launch the interactive MTG card creator."""
         self._sessions.pop(ctx.author.id, None)
 
         embed = discord.Embed(
@@ -308,44 +312,23 @@ class MTGCCog(commands.Cog):
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.2.0")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.3.0")
         view = self._build_creator_view()
 
         creator_msg = await ctx.send(embed=embed, view=view)
-
-        # Store creator message ID so we can clean it up later
         self._sessions[ctx.author.id] = {"creator_msg_id": creator_msg.id}
 
     @mtgc.command(name="borders")
     async def mtgc_borders(self, ctx: commands.Context):
+        """List all available frame styles."""
         lines = [f"{palette['emoji']} **{style.capitalize()}** — {palette['desc']}" for style, palette in BORDER_PALETTES.items()]
-        embed = discord.Embed(title="🎨 Available Frame Styles", description="\n".join(lines), color=await ctx.embed_color())
-        embed.set_footer(text="Use [p]mtgc create to start building your card")
-        await ctx.send(embed=embed)
-
-    @mtgc.command(name="info")
-    async def mtgc_info(self, ctx: commands.Context):
         embed = discord.Embed(
-            title="ℹ️ MTGC — Information & Contact",
-            description="Realistic MTG card creator with gradient frames and text shadows.\nAuto-cleans interactive messages.",
+            title="🎨 Available Frame Styles",
+            description="\n".join(lines),
             color=await ctx.embed_color(),
         )
-        embed.add_field(name="Version", value=self.__version__, inline=True)
-        embed.add_field(name="Author", value=self.__author__, inline=True)
-        embed.add_field(name="Requires", value="`pillow`", inline=True)
-        embed.set_footer(text="MTGC • Red-compatible")
+        embed.set_footer(text="Use [p]mtgc create to start building your card")
         await ctx.send(embed=embed)
-
-    @mtgc.command(name="reset")
-    async def mtgc_reset(self, ctx: commands.Context):
-        if self._sessions.pop(ctx.author.id, None):
-            await ctx.send("🔄 Session cleared.")
-        else:
-            await ctx.send("ℹ️ You don't have an active session.")
-
-    @mtgc.command(name="version")
-    async def mtgc_version(self, ctx: commands.Context):
-        await ctx.send(f"**MTGC** v{self.__version__}")
 
     # ─── Message Listener ───────────────────────────────────────────────
 
@@ -398,7 +381,7 @@ class MTGCCog(commands.Cog):
 
             await progress_msg.edit(content=None, embed=embed, attachments=[file])
 
-            # ── CLEANUP: Remove the original interactive creator embed ──
+            # Clean up the interactive creator embed
             if creator_msg_id:
                 try:
                     creator_msg = await message.channel.fetch_message(creator_msg_id)
@@ -467,7 +450,6 @@ class _CancelButton(Button):
         self.cog._sessions.pop(interaction.user.id, None)
         await interaction.response.send_message("❌ Session cancelled.", ephemeral=True)
 
-        # Clean up the interactive creator embed
         try:
             await interaction.message.delete()
         except (discord.NotFound, discord.HTTPException):
