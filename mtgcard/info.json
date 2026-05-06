@@ -1,0 +1,10 @@
+{
+    "author": ["SHADOW6six"],
+    "name": "MTGCard",
+    "short": "Realistic Magic: The Gathering card creator using PNG templates",
+    "description": "Create custom MTG cards with high-quality PNG templates, your own art, and full text support. Gradient-free, template-based for maximum realism.",
+    "version": "3.1.0",
+    "requirements": ["pillow"],
+    "tags": ["fun", "games", "mtg", "magic", "card", "generator"],
+    "min_bot_version": "3.4.0"
+}
