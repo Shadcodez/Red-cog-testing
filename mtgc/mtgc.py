@@ -48,7 +48,6 @@ _font_cache: Dict[int, ImageFont.FreeTypeFont] = {}
 
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
-    """Find and cache a TrueType font at the given size, with fallback."""
     if size in _font_cache:
         return _font_cache[size]
     for path in _FONT_PATHS:
@@ -64,7 +63,6 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
 
 
 def _text_width(draw: ImageDraw.ImageDraw, text: str, font) -> int:
-    """Get text width, compatible with multiple Pillow versions."""
     try:
         bbox = draw.textbbox((0, 0), text, font=font)
         return bbox[2] - bbox[0]
@@ -77,7 +75,6 @@ def _text_width(draw: ImageDraw.ImageDraw, text: str, font) -> int:
 
 
 def _rounded_rect(draw: ImageDraw.ImageDraw, coords, radius: int = 0, **kwargs):
-    """Draw a rounded rectangle with fallback for older Pillow."""
     if radius > 0:
         try:
             draw.rounded_rectangle(coords, radius=radius, **kwargs)
@@ -85,6 +82,36 @@ def _rounded_rect(draw: ImageDraw.ImageDraw, coords, radius: int = 0, **kwargs):
         except (AttributeError, TypeError):
             pass
     draw.rectangle(coords, **kwargs)
+
+
+# ─── Gradient Helpers (for realistic card borders) ──────────────────────────
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _lighten_color(hex_color: str, factor: float = 0.18) -> str:
+    r, g, b = _hex_to_rgb(hex_color)
+    r = int(r + (255 - r) * factor)
+    g = int(g + (255 - g) * factor)
+    b = int(b + (255 - b) * factor)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _draw_vertical_gradient(
+    draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], color1: str, color2: str
+):
+    x1, y1, x2, y2 = box
+    rgb1 = _hex_to_rgb(color1)
+    rgb2 = _hex_to_rgb(color2)
+    height = max(1, y2 - y1)
+    for i in range(height):
+        ratio = i / height
+        r = int(rgb1[0] * (1 - ratio) + rgb2[0] * ratio)
+        g = int(rgb1[1] * (1 - ratio) + rgb2[1] * ratio)
+        b = int(rgb1[2] * (1 - ratio) + rgb2[2] * ratio)
+        draw.line([(x1, y1 + i), (x2, y1 + i)], fill=(r, g, b))
 
 
 # ─── Border Palettes ────────────────────────────────────────────────────────
@@ -239,13 +266,10 @@ BORDER_PALETTES = {
 # ─── Cog ────────────────────────────────────────────────────────────────────
 
 class MTGCCog(commands.Cog):
-    """MTGC — Magic: The Gathering Card Creator
-
-    A polished, interactive custom MTG card generator for Red Discord Bot.
-    """
+    """MTGC — Magic: The Gathering Card Creator (Realistic Gradient Edition)"""
 
     __author__ = "MTGC Community"
-    __version__ = "2.0.0"
+    __version__ = "2.1.0"
 
     def __init__(self, bot):
         self.bot = bot
@@ -255,7 +279,6 @@ class MTGCCog(commands.Cog):
         self.borders_path.mkdir(parents=True, exist_ok=True)
 
         self._sessions: Dict[int, dict] = {}
-
         self._init_task: Optional[asyncio.Task] = asyncio.create_task(
             self._ensure_borders()
         )
@@ -280,17 +303,23 @@ class MTGCCog(commands.Cog):
 
     @staticmethod
     def _save_border_file(path: Path, palette: dict):
+        """Generate border PNG with realistic vertical gradient."""
         img = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
+        # Outer border
         draw.rectangle([(0, 0), (CARD_W - 1, CARD_H - 1)], fill=palette["outer"])
-        draw.rectangle([(8, 8), (CARD_W - 9, CARD_H - 9)], fill=palette["frame"])
-        draw.rectangle(
-            [(8, 8), (CARD_W - 9, CARD_H - 9)],
-            outline=palette["accent"],
-            width=2,
-        )
 
+        # Inner frame with gradient (much more realistic)
+        frame_box = (8, 8, CARD_W - 9, CARD_H - 9)
+        gradient_top = palette["frame"]
+        gradient_bot = _lighten_color(palette["frame"])
+        _draw_vertical_gradient(draw, frame_box, gradient_top, gradient_bot)
+
+        # Accent outline
+        draw.rectangle(frame_box, outline=palette["accent"], width=2)
+
+        # Name plate
         _rounded_rect(
             draw,
             [(18, 16), (CARD_W - 19, 56)],
@@ -299,6 +328,7 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=1,
         )
+        # Type line plate
         _rounded_rect(
             draw,
             [(18, 366), (CARD_W - 19, 398)],
@@ -307,6 +337,7 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=1,
         )
+        # Text box
         _rounded_rect(
             draw,
             [(24, 406), (CARD_W - 25, 614)],
@@ -315,6 +346,7 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=1,
         )
+        # Power / Toughness box
         _rounded_rect(
             draw,
             [(CARD_W - 128, 620), (CARD_W - 20, 656)],
@@ -323,13 +355,16 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=2,
         )
+        # Footer strip
         draw.rectangle(
             [(18, 660), (CARD_W - 19, CARD_H - 10)], fill=palette["name_bg"]
         )
 
+        # Clear art area
         transparent_art = Image.new("RGBA", (ART_W, ART_H), (0, 0, 0, 0))
         img.paste(transparent_art, (ART_X, ART_Y))
 
+        # Art box outline
         draw.rectangle(
             [(ART_X - 3, ART_Y - 3), (ART_X + ART_W + 2, ART_Y + ART_H + 2)],
             outline=palette["accent"],
@@ -358,64 +393,71 @@ class MTGCCog(commands.Cog):
     def _render_card(self, art_bytes: bytes, border_style: str, params: dict) -> bytes:
         palette = BORDER_PALETTES.get(border_style, BORDER_PALETTES["light"])
 
+        # Load and resize art
         art = Image.open(io.BytesIO(art_bytes)).convert("RGBA")
         art = art.resize((ART_W, ART_H), Image.LANCZOS)
 
         card = Image.new("RGBA", (CARD_W, CARD_H), (235, 235, 235, 255))
         card.paste(art, (ART_X, ART_Y), art)
 
+        # Load gradient border
         border_path = self.borders_path / f"{border_style}.png"
         if border_path.exists():
             border_img = Image.open(border_path).convert("RGBA")
         else:
             border_img = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
             fallback_draw = ImageDraw.Draw(border_img)
-            fallback_draw.rectangle(
-                [(0, 0), (CARD_W - 1, CARD_H - 1)], outline="#1A1A1A", width=10
-            )
+            fallback_draw.rectangle([(0, 0), (CARD_W - 1, CARD_H - 1)], outline="#1A1A1A", width=10)
 
         card = Image.alpha_composite(card, border_img)
         card_rgb = card.convert("RGB")
-
         draw = ImageDraw.Draw(card_rgb)
+
         title_font = _get_font(20)
         type_font = _get_font(16)
         body_font = _get_font(15)
         small_font = _get_font(10)
+
         title_color = palette["title_color"]
         body_color = palette["body_color"]
+        shadow_color = "#1A1A1A"  # soft shadow for depth
 
+        def _shadow_text(x, y, text, font, color):
+            draw.text((x + 1, y + 1), text, fill=shadow_color, font=font)
+            draw.text((x, y), text, fill=color, font=font)
+
+        # Card name
         name = params.get("name", "Unnamed Card")
-        draw.text((28, 26), name, fill=title_color, font=title_font)
+        _shadow_text(28, 26, name, title_font, title_color)
 
+        # Mana cost
         mana = params.get("mana_cost", "")
         if mana:
             mana_w = _text_width(draw, mana, title_font)
-            draw.text((CARD_W - 28 - mana_w, 26), mana, fill=title_color, font=title_font)
+            _shadow_text(CARD_W - 28 - mana_w, 26, mana, title_font, title_color)
 
+        # Type line
         type_line = params.get("type_line", "")
         if type_line:
-            draw.text((28, 374), type_line, fill=title_color, font=type_font)
+            _shadow_text(28, 374, type_line, type_font, title_color)
 
+        # Oracle text
         oracle = params.get("oracle_text", "")
         if oracle:
             wrapped_lines = textwrap.wrap(oracle, width=46)
             y_pos = 416
             for line in wrapped_lines[:10]:
-                draw.text((34, y_pos), line, fill=body_color, font=body_font)
+                _shadow_text(34, y_pos, line, body_font, body_color)
                 y_pos += 20
 
+        # Power / Toughness
         pt = params.get("power_toughness", "")
         if pt:
             pt_w = _text_width(draw, pt, title_font)
             pt_box_center = CARD_W - 128 + 54
-            draw.text(
-                (pt_box_center - pt_w // 2, 629),
-                pt,
-                fill=title_color,
-                font=title_font,
-            )
+            _shadow_text(pt_box_center - pt_w // 2, 629, pt, title_font, title_color)
 
+        # Footer
         draw.text(
             (24, 663),
             "Custom MTG Card • MTGC",
@@ -424,7 +466,7 @@ class MTGCCog(commands.Cog):
         )
 
         output = io.BytesIO()
-        card_rgb.save(output, format="JPEG", quality=95)
+        card_rgb.save(output, format="JPEG", quality=98)
         output.seek(0)
         return output.getvalue()
 
@@ -467,11 +509,11 @@ class MTGCCog(commands.Cog):
                 "🎨 **Step 1** — Select a frame style from the dropdown\n"
                 "📝 **Step 2** — Click **Set Parameters** to fill in card details\n"
                 "🖼️ **Step 3** — Click **Upload Art** and send your image\n\n"
-                "**Output:** 488×680 JPEG • 13 frame styles"
+                "**Output:** 488×680 JPEG • 13 frame styles • Gradient borders"
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.0.0")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.1.0")
         view = self._build_creator_view()
         await ctx.send(embed=embed, view=view)
 
@@ -495,10 +537,9 @@ class MTGCCog(commands.Cog):
         embed = discord.Embed(
             title="ℹ️ MTGC — Information & Contact",
             description=(
-                "**MTGC** is a custom Magic: The Gathering card creator cog "
+                "**MTGC** is a realistic Magic: The Gathering card creator cog "
                 "for Red Discord Bot.\n\n"
-                "All frame assets are generated locally. No external API calls, "
-                "no stored user data."
+                "Gradient frames + text shadows for a premium look."
             ),
             color=await ctx.embed_color(),
         )
@@ -556,7 +597,7 @@ class MTGCCog(commands.Cog):
             )
             return
 
-        progress_msg = await message.channel.send("🃏 Rendering your card…")
+        progress_msg = await message.channel.send("🃏 Rendering your realistic card…")
 
         try:
             art_bytes = await attachment.read()
@@ -581,7 +622,7 @@ class MTGCCog(commands.Cog):
                 color=color,
             )
             embed.set_image(url=f"attachment://{filename}")
-            embed.set_footer(text="MTGC • 488×680 JPEG")
+            embed.set_footer(text="MTGC • 488×680 JPEG • Gradient + Shadows")
 
             await progress_msg.edit(content=None, embed=embed, attachments=[file])
 
