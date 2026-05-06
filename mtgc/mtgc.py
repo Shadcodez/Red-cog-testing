@@ -238,18 +238,10 @@ BORDER_PALETTES = {
 
 # ─── Cog ────────────────────────────────────────────────────────────────────
 
-
 class MTGCCog(commands.Cog):
-    """MTGC \u2014 Magic: The Gathering Card Creator
+    """MTGC — Magic: The Gathering Card Creator
 
     A polished, interactive custom MTG card generator for Red Discord Bot.
-    Upload any image as card art, choose from 13 frame styles, enter card
-    details via a modal dialog, and receive a rendered 488\u00d7680 JPEG card.
-
-    All frame assets are generated programmatically on first load\u2014no
-    external downloads required. Uses your bot's configured embed colour.
-
-    **Quick Start:** Run `[p]mtgc` or `[p]mtgc create` to begin.
     """
 
     __author__ = "MTGC Community"
@@ -262,10 +254,8 @@ class MTGCCog(commands.Cog):
         self.borders_path: Path = self.data_path / "borders"
         self.borders_path.mkdir(parents=True, exist_ok=True)
 
-        # In-memory session storage (user_id -> session dict)
         self._sessions: Dict[int, dict] = {}
 
-        # Background task to generate border assets
         self._init_task: Optional[asyncio.Task] = asyncio.create_task(
             self._ensure_borders()
         )
@@ -273,7 +263,6 @@ class MTGCCog(commands.Cog):
     # ─── Lifecycle ──────────────────────────────────────────────────────
 
     async def _ensure_borders(self):
-        """Generate all border frame PNGs if they don't already exist."""
         generated = 0
         for style, palette in BORDER_PALETTES.items():
             path = self.borders_path / f"{style}.png"
@@ -291,24 +280,17 @@ class MTGCCog(commands.Cog):
 
     @staticmethod
     def _save_border_file(path: Path, palette: dict):
-        """Render a single border frame PNG and write it to disk."""
         img = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        # Outer border fill
         draw.rectangle([(0, 0), (CARD_W - 1, CARD_H - 1)], fill=palette["outer"])
-
-        # Inner coloured frame
         draw.rectangle([(8, 8), (CARD_W - 9, CARD_H - 9)], fill=palette["frame"])
-
-        # Accent outline on inner frame
         draw.rectangle(
             [(8, 8), (CARD_W - 9, CARD_H - 9)],
             outline=palette["accent"],
             width=2,
         )
 
-        # Name plate
         _rounded_rect(
             draw,
             [(18, 16), (CARD_W - 19, 56)],
@@ -317,8 +299,6 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=1,
         )
-
-        # Type line plate
         _rounded_rect(
             draw,
             [(18, 366), (CARD_W - 19, 398)],
@@ -327,8 +307,6 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=1,
         )
-
-        # Text box
         _rounded_rect(
             draw,
             [(24, 406), (CARD_W - 25, 614)],
@@ -337,8 +315,6 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=1,
         )
-
-        # Power / Toughness box (bottom-right)
         _rounded_rect(
             draw,
             [(CARD_W - 128, 620), (CARD_W - 20, 656)],
@@ -347,78 +323,60 @@ class MTGCCog(commands.Cog):
             outline=palette["accent"],
             width=2,
         )
-
-        # Footer strip
         draw.rectangle(
             [(18, 660), (CARD_W - 19, CARD_H - 10)], fill=palette["name_bg"]
         )
 
-        # Clear art area to full transparency (art composites underneath)
         transparent_art = Image.new("RGBA", (ART_W, ART_H), (0, 0, 0, 0))
         img.paste(transparent_art, (ART_X, ART_Y))
 
-        # Art box outline (drawn after clearing so edges are crisp)
         draw.rectangle(
             [(ART_X - 3, ART_Y - 3), (ART_X + ART_W + 2, ART_Y + ART_H + 2)],
             outline=palette["accent"],
             width=2,
         )
-
-        # Inner bevel effect on art box
         draw.rectangle(
             [(ART_X - 1, ART_Y - 1), (ART_X + ART_W, ART_Y + ART_H)],
             outline=palette["outer"],
             width=1,
         )
 
-        # Save
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         path.write_bytes(buf.getvalue())
 
     async def cog_unload(self):
-        """Clean up resources on unload."""
         if self._init_task and not self._init_task.done():
             self._init_task.cancel()
         self._sessions.clear()
 
     async def red_delete_data_for_user(self, *, requester: str, user_id: int):
-        """Red end-user data deletion compliance."""
         self._sessions.pop(user_id, None)
 
     # ─── Card Rendering ─────────────────────────────────────────────────
 
     def _render_card(self, art_bytes: bytes, border_style: str, params: dict) -> bytes:
-        """Render the complete card image (CPU-bound, run in thread)."""
         palette = BORDER_PALETTES.get(border_style, BORDER_PALETTES["light"])
 
-        # Open and resize art
         art = Image.open(io.BytesIO(art_bytes)).convert("RGBA")
         art = art.resize((ART_W, ART_H), Image.LANCZOS)
 
-        # Create base card with neutral background
         card = Image.new("RGBA", (CARD_W, CARD_H), (235, 235, 235, 255))
-
-        # Paste art into position
         card.paste(art, (ART_X, ART_Y), art)
 
-        # Load border frame overlay
         border_path = self.borders_path / f"{border_style}.png"
         if border_path.exists():
             border_img = Image.open(border_path).convert("RGBA")
         else:
-            # Minimal fallback frame
             border_img = Image.new("RGBA", (CARD_W, CARD_H), (0, 0, 0, 0))
             fallback_draw = ImageDraw.Draw(border_img)
             fallback_draw.rectangle(
                 [(0, 0), (CARD_W - 1, CARD_H - 1)], outline="#1A1A1A", width=10
             )
 
-        # Composite border on top of card+art
         card = Image.alpha_composite(card, border_img)
         card_rgb = card.convert("RGB")
 
-        # ── Draw Text ───────────────────────────────────────────────────
         draw = ImageDraw.Draw(card_rgb)
         title_font = _get_font(20)
         type_font = _get_font(16)
@@ -427,36 +385,29 @@ class MTGCCog(commands.Cog):
         title_color = palette["title_color"]
         body_color = palette["body_color"]
 
-        # Card name (left-aligned in name plate)
         name = params.get("name", "Unnamed Card")
         draw.text((28, 26), name, fill=title_color, font=title_font)
 
-        # Mana cost (right-aligned in name plate)
         mana = params.get("mana_cost", "")
         if mana:
             mana_w = _text_width(draw, mana, title_font)
             draw.text((CARD_W - 28 - mana_w, 26), mana, fill=title_color, font=title_font)
 
-        # Type line
         type_line = params.get("type_line", "")
         if type_line:
             draw.text((28, 374), type_line, fill=title_color, font=type_font)
 
-        # Oracle / Rules text (word-wrapped)
         oracle = params.get("oracle_text", "")
         if oracle:
             wrapped_lines = textwrap.wrap(oracle, width=46)
             y_pos = 416
-            max_lines = 10
-            for line in wrapped_lines[:max_lines]:
+            for line in wrapped_lines[:10]:
                 draw.text((34, y_pos), line, fill=body_color, font=body_font)
                 y_pos += 20
 
-        # Power / Toughness (centered in P/T box)
         pt = params.get("power_toughness", "")
         if pt:
             pt_w = _text_width(draw, pt, title_font)
-            # Center in P/T box: box is from (CARD_W-128) to (CARD_W-20) = 108px wide
             pt_box_center = CARD_W - 128 + 54
             draw.text(
                 (pt_box_center - pt_w // 2, 629),
@@ -465,15 +416,13 @@ class MTGCCog(commands.Cog):
                 font=title_font,
             )
 
-        # Footer
         draw.text(
             (24, 663),
-            "Custom MTG Card \u2022 MTGC",
+            "Custom MTG Card • MTGC",
             fill="#888888",
             font=small_font,
         )
 
-        # Export as high-quality JPEG
         output = io.BytesIO()
         card_rgb.save(output, format="JPEG", quality=95)
         output.seek(0)
@@ -482,7 +431,6 @@ class MTGCCog(commands.Cog):
     # ─── Embed Color Helper ─────────────────────────────────────────────
 
     async def _get_embed_color(self, destination) -> discord.Color:
-        """Get the bot's configured embed color, with fallback."""
         try:
             return await self.bot.get_embed_color(destination)
         except (AttributeError, TypeError):
@@ -495,7 +443,6 @@ class MTGCCog(commands.Cog):
     # ─── View Factory ───────────────────────────────────────────────────
 
     def _build_creator_view(self) -> View:
-        """Build the main interactive card creator view."""
         view = View(timeout=600)
         view.add_item(_BorderDropdown(self))
         view.add_item(_ParamsButton(self))
@@ -507,64 +454,36 @@ class MTGCCog(commands.Cog):
 
     @commands.group(name="mtgc", invoke_without_command=True)
     async def mtgc(self, ctx: commands.Context):
-        """MTGC \u2014 Magic: The Gathering Card Creator.
-
-        Create custom MTG-style cards with your own uploaded art.
-        Running this command without a subcommand launches the
-        interactive card creator.
-
-        **Subcommands:**
-        `create`  \u2014 Launch the card creator
-        `borders` \u2014 List all available frame styles
-        `info`    \u2014 Cog info and contact details
-        `reset`   \u2014 Clear your current session
-        `version` \u2014 Show cog version
-        """
         await self.mtgc_create(ctx)
 
     @mtgc.command(name="create")
     async def mtgc_create(self, ctx: commands.Context):
-        """Launch the interactive MTG card creator.
-
-        Presents a step-by-step workflow:
-        1. Select a frame style from the dropdown (13 options)
-        2. Click Set Parameters to enter card name, type, text, etc.
-        3. Click Upload Art and attach your image
-
-        Your finished card is output as a 488\u00d7680 JPEG.
-        """
-        # Clear any stale session
         self._sessions.pop(ctx.author.id, None)
 
         embed = discord.Embed(
-            title="\U0001f0cf MTG Card Creator",
+            title="🃏 MTG Card Creator",
             description=(
                 "Create a custom Magic: The Gathering card in three easy steps:\n\n"
-                "\U0001f3a8 **Step 1** \u2014 Select a frame style from the dropdown\n"
-                "\U0001f4dd **Step 2** \u2014 Click **Set Parameters** to fill in card details\n"
-                "\U0001f5bc\ufe0f **Step 3** \u2014 Click **Upload Art** and send your image\n\n"
-                "**Output:** 488\u00d7680 JPEG \u2022 13 frame styles \u2022 Full rules text support"
+                "🎨 **Step 1** — Select a frame style from the dropdown\n"
+                "📝 **Step 2** — Click **Set Parameters** to fill in card details\n"
+                "🖼️ **Step 3** — Click **Upload Art** and send your image\n\n"
+                "**Output:** 488×680 JPEG • 13 frame styles"
             ),
             color=await ctx.embed_color(),
         )
-        embed.set_footer(text="Session expires in 10 minutes \u2022 MTGC v2.0.0")
+        embed.set_footer(text="Session expires in 10 minutes • MTGC v2.0.0")
         view = self._build_creator_view()
         await ctx.send(embed=embed, view=view)
 
     @mtgc.command(name="borders")
     async def mtgc_borders(self, ctx: commands.Context):
-        """Display all 13 available frame styles with descriptions.
-
-        Each style produces a distinct coloured frame around your card art,
-        matching the iconic MTG colour pie plus generic options.
-        """
         lines = []
         for style, palette in BORDER_PALETTES.items():
             lines.append(
-                f"{palette['emoji']} **{style.capitalize()}** \u2014 {palette['desc']}"
+                f"{palette['emoji']} **{style.capitalize()}** — {palette['desc']}"
             )
         embed = discord.Embed(
-            title="\U0001f3a8 Available Frame Styles",
+            title="🎨 Available Frame Styles",
             description="\n".join(lines),
             color=await ctx.embed_color(),
         )
@@ -573,91 +492,50 @@ class MTGCCog(commands.Cog):
 
     @mtgc.command(name="info")
     async def mtgc_info(self, ctx: commands.Context):
-        """Show cog information, features, and contact/support details.
-
-        Displays version, author, requirements, and instructions
-        for getting help or reporting issues.
-        """
         embed = discord.Embed(
-            title="\u2139\ufe0f MTGC \u2014 Information & Contact",
+            title="ℹ️ MTGC — Information & Contact",
             description=(
                 "**MTGC** is a custom Magic: The Gathering card creator cog "
                 "for Red Discord Bot.\n\n"
-                "Upload any image as art, choose from 13 frame styles, enter "
-                "card parameters via an interactive modal, and receive a fully "
-                "rendered 488\u00d7680 JPEG card\u2014all within Discord.\n\n"
-                "All frame assets are generated locally on first load. No external "
-                "API calls, no stored user data, no required configuration."
+                "All frame assets are generated locally. No external API calls, "
+                "no stored user data."
             ),
             color=await ctx.embed_color(),
         )
         embed.add_field(name="Version", value=self.__version__, inline=True)
         embed.add_field(name="Author", value=self.__author__, inline=True)
         embed.add_field(name="Requires", value="`pillow`", inline=True)
-        embed.add_field(
-            name="Features",
-            value=(
-                "\u2022 13 colour-pie + generic frame styles\n"
-                "\u2022 Interactive dropdown + modal workflow\n"
-                "\u2022 Card name, mana cost, type line, rules text, P/T\n"
-                "\u2022 Automatic word-wrapping for rules text\n"
-                "\u2022 Uses bot's configured embed colour\n"
-                "\u2022 Zero persistent data storage"
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="Support & Contact",
-            value=(
-                "Report bugs or request features on the cog's repository.\n"
-                "For direct support, use `[p]contact` to message the bot owner."
-            ),
-            inline=False,
-        )
-        embed.set_footer(text="MTGC \u2022 Red-compatible \u2022 No user data stored")
+        embed.set_footer(text="MTGC • Red-compatible • No user data stored")
         await ctx.send(embed=embed)
 
     @mtgc.command(name="reset")
     async def mtgc_reset(self, ctx: commands.Context):
-        """Clear your current card creation session.
-
-        Removes all in-memory parameters (border selection, card details).
-        Use this if you want to start over or encountered an issue.
-        """
         if self._sessions.pop(ctx.author.id, None):
-            await ctx.send("\U0001f504 Session cleared. Run `[p]mtgc create` to start fresh.")
+            await ctx.send("🔄 Session cleared. Run `[p]mtgc create` to start fresh.")
         else:
-            await ctx.send("\u2139\ufe0f You don't have an active session.")
+            await ctx.send("ℹ️ You don't have an active session.")
 
     @mtgc.command(name="version")
     async def mtgc_version(self, ctx: commands.Context):
-        """Display the current MTGC cog version."""
         await ctx.send(f"**MTGC** v{self.__version__}")
 
     # ─── Message Listener ───────────────────────────────────────────────
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Listen for image uploads from users with active awaiting sessions."""
         if message.author.bot:
             return
 
         uid = message.author.id
         session = self._sessions.get(uid)
 
-        # Only proceed if user has an active session awaiting upload
         if not session or not session.get("awaiting"):
             return
-
-        # Verify channel matches where they started
         if session.get("channel") and message.channel.id != session["channel"]:
             return
-
-        # Must have attachments
         if not message.attachments:
             return
 
-        # Find first image attachment
         attachment = None
         for att in message.attachments:
             if att.content_type and att.content_type.startswith("image/"):
@@ -667,20 +545,18 @@ class MTGCCog(commands.Cog):
         if attachment is None:
             return
 
-        # Extract session data and clear it immediately
         border_style = session.get("border", "light")
         params = session.get("params", {})
         self._sessions.pop(uid, None)
 
         if not params:
             await message.reply(
-                "\u26a0\ufe0f No card parameters found. Please click **Set Parameters** first.",
+                "⚠️ No card parameters found. Please click **Set Parameters** first.",
                 mention_author=False,
             )
             return
 
-        # Progress message
-        progress_msg = await message.channel.send("\U0001f0cf Rendering your card\u2026")
+        progress_msg = await message.channel.send("🃏 Rendering your card…")
 
         try:
             art_bytes = await attachment.read()
@@ -688,7 +564,6 @@ class MTGCCog(commands.Cog):
                 self._render_card, art_bytes, border_style, params
             )
 
-            # Build safe filename
             safe_name = "".join(
                 c for c in params.get("name", "card") if c.isalnum() or c in " _-"
             ).strip()
@@ -696,55 +571,43 @@ class MTGCCog(commands.Cog):
 
             file = discord.File(io.BytesIO(card_bytes), filename=filename)
 
-            # Result embed using bot's colour
             color = await self._get_embed_color(message.channel)
             embed = discord.Embed(
-                title=f"\U0001f0cf {params.get('name', 'Custom Card')}",
+                title=f"🃏 {params.get('name', 'Custom Card')}",
                 description=(
                     f"**Frame:** {border_style.capitalize()}\n"
-                    f"**Type:** {params.get('type_line', '\u2014')}"
+                    f"**Type:** {params.get('type_line', '—')}"
                 ),
                 color=color,
             )
             embed.set_image(url=f"attachment://{filename}")
-            embed.set_footer(text="MTGC \u2022 488\u00d7680 JPEG")
+            embed.set_footer(text="MTGC • 488×680 JPEG")
 
-            await progress_msg.edit(
-                content=None, embed=embed, attachments=[file]
-            )
+            await progress_msg.edit(content=None, embed=embed, attachments=[file])
 
         except Exception as exc:
-            self.logger.error(
-                "MTGC: Card render failed for user %s: %s", uid, exc, exc_info=True
-            )
+            self.logger.error("MTGC: Card render failed", exc_info=True)
             await progress_msg.edit(
-                content=(
-                    "\u26a0\ufe0f An error occurred while rendering your card. "
-                    "Please make sure you uploaded a valid image file and try again."
-                )
+                content="⚠️ An error occurred while rendering your card."
             )
 
 
-# ─── UI Components (module-level for cleaner pickling) ──────────────────────
-
+# ─── UI Components ──────────────────────────────────────────────────────────
 
 class _BorderDropdown(Select):
-    """Frame style selection dropdown."""
-
     def __init__(self, cog: MTGCCog):
         self.cog = cog
-        options = []
-        for style, palette in BORDER_PALETTES.items():
-            options.append(
-                discord.SelectOption(
-                    label=style.capitalize(),
-                    value=style,
-                    description=palette["desc"],
-                    emoji=palette["emoji"],
-                )
+        options = [
+            discord.SelectOption(
+                label=style.capitalize(),
+                value=style,
+                description=palette["desc"],
+                emoji=palette["emoji"],
             )
+            for style, palette in BORDER_PALETTES.items()
+        ]
         super().__init__(
-            placeholder="\U0001f3a8 Step 1: Select frame style\u2026",
+            placeholder="🎨 Step 1: Select frame style…",
             options=options,
             min_values=1,
             max_values=1,
@@ -756,21 +619,18 @@ class _BorderDropdown(Select):
         if uid not in self.cog._sessions:
             self.cog._sessions[uid] = {}
         self.cog._sessions[uid]["border"] = self.values[0]
-        style_name = self.values[0].capitalize()
         await interaction.response.send_message(
-            f"\u2705 Frame set to **{style_name}**. Proceed to Step 2!",
+            f"✅ Frame set to **{self.values[0].capitalize()}**. Proceed to Step 2!",
             ephemeral=True,
         )
 
 
 class _ParamsButton(Button):
-    """Button that opens the card parameters modal."""
-
     def __init__(self, cog: MTGCCog):
         super().__init__(
             label="Step 2: Set Parameters",
             style=discord.ButtonStyle.primary,
-            emoji="\U0001f4dd",
+            emoji="📝",
             row=1,
         )
         self.cog = cog
@@ -781,13 +641,11 @@ class _ParamsButton(Button):
 
 
 class _GenerateButton(Button):
-    """Button that marks the session as awaiting image upload."""
-
     def __init__(self, cog: MTGCCog):
         super().__init__(
             label="Step 3: Upload Art",
             style=discord.ButtonStyle.success,
-            emoji="\U0001f5bc\ufe0f",
+            emoji="🖼️",
             row=1,
         )
         self.cog = cog
@@ -798,7 +656,7 @@ class _GenerateButton(Button):
 
         if not session or "params" not in session:
             await interaction.response.send_message(
-                "\u26a0\ufe0f Please complete **Step 2** first (Set Parameters).",
+                "⚠️ Please complete **Step 2** first (Set Parameters).",
                 ephemeral=True,
             )
             return
@@ -810,22 +668,18 @@ class _GenerateButton(Button):
         session["channel"] = interaction.channel_id
 
         await interaction.response.send_message(
-            "\U0001f5bc\ufe0f **Upload your art image now!**\n"
-            "Send a message with an attached image (PNG, JPG, WEBP, etc.) "
-            "in this channel.\n\n"
-            "*Your card will be generated automatically when the image is detected.*",
+            "🖼️ **Upload your art image now!**\n"
+            "Send a message with an attached image in this channel.",
             ephemeral=True,
         )
 
 
 class _CancelButton(Button):
-    """Button to cancel the current session."""
-
     def __init__(self, cog: MTGCCog):
         super().__init__(
             label="Cancel",
             style=discord.ButtonStyle.secondary,
-            emoji="\u2716\ufe0f",
+            emoji="❌",
             row=2,
         )
         self.cog = cog
@@ -833,13 +687,11 @@ class _CancelButton(Button):
     async def callback(self, interaction: discord.Interaction):
         self.cog._sessions.pop(interaction.user.id, None)
         await interaction.response.send_message(
-            "\u274c Session cancelled.", ephemeral=True
+            "❌ Session cancelled.", ephemeral=True
         )
 
 
-class _ParamsModal(Modal, title="\U0001f4dd Card Parameters"):
-    """Modal dialog for entering card details."""
-
+class _ParamsModal(Modal, title="📝 Card Parameters"):
     def __init__(self, cog: MTGCCog, user_id: int):
         super().__init__(timeout=300)
         self.cog = cog
@@ -859,14 +711,14 @@ class _ParamsModal(Modal, title="\U0001f4dd Card Parameters"):
     )
     type_field = TextInput(
         label="Type Line",
-        placeholder="e.g. Creature \u2014 Angel",
+        placeholder="e.g. Creature — Angel",
         max_length=55,
         required=True,
     )
     oracle_field = TextInput(
         label="Rules Text (optional)",
         style=discord.TextStyle.paragraph,
-        placeholder="e.g. Flying, vigilance\n\nWhenever ~ attacks...",
+        placeholder="e.g. Flying, vigilance...",
         max_length=500,
         required=False,
     )
@@ -888,6 +740,14 @@ class _ParamsModal(Modal, title="\U0001f4dd Card Parameters"):
             "power_toughness": self.pt_field.value.strip(),
         }
         await interaction.response.send_message(
-            "\u2705 **Parameters saved!** Proceed to **Step 3: Upload Art**.",
+            "✅ **Parameters saved!** Proceed to **Step 3: Upload Art**.",
             ephemeral=True,
         )
+
+
+# ─── Setup ──────────────────────────────────────────────────────────────────
+
+async def setup(bot):
+    """Required by Red Discord Bot to load the cog."""
+    cog = MTGCCog(bot)
+    await bot.add_cog(cog)
