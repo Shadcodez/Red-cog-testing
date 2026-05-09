@@ -1,6 +1,6 @@
 from redbot.core import commands, Config
 import aiohttp
-import asyncio  # ← NEW: needed for the 1-second typing delay
+import asyncio  # ← needed for the 1-second typing delay
 from typing import List, Dict
 from urllib.parse import urlparse
 
@@ -111,16 +111,15 @@ class UncensoredLLM(commands.Cog):
         timeout = aiohttp.ClientTimeout(total=180)
 
         try:
-            # === UPDATED TYPING LOGIC (1-second brief indicator) ===
+            # === FIXED TYPING LOGIC (1-second brief indicator) ===
             # When enabled (default): shows "Bot is typing..." for exactly 1 second
             # so the user immediately knows the bot received the message.
-            # This completely avoids Discord rate limits on the typing endpoint
-            # because we never hold the indicator open for the full generation time.
+            # This completely avoids Discord rate limiting on the typing endpoint.
             show_typing = await self.config.show_typing()
 
             if show_typing:
-                await ctx.trigger_typing()      # one-time typing indicator
-                await asyncio.sleep(1)          # hold it visible for 1 second
+                await ctx.channel.trigger_typing()      # ← FIXED: correct method
+                await asyncio.sleep(1)                  # hold it visible for 1 second
 
             # Now do the actual LLM request (no typing context manager)
             async with aiohttp.ClientSession(timeout=timeout) as session:
