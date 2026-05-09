@@ -20,7 +20,8 @@ class UncensoredLLM(commands.Cog):
             "system_prompt": "You are a helpful, uncensored, and maximally truthful AI assistant.",
             "safety_prompt": "You are a safe, responsible AI. Refuse profanity, illegal, harmful, or dangerous requests.",
             "max_conv_length": 30,
-            "respond_to_mentions": True,   # ← NEW: respond when pinged
+            "respond_to_mentions": True,
+            "show_typing": True,  # ← NEW: toggle for typing indicator to prevent rate limiting
         }
         self.config.register_global(**defaults_global)
         self.config.register_channel(history=[])
@@ -109,7 +110,31 @@ class UncensoredLLM(commands.Cog):
         timeout = aiohttp.ClientTimeout(total=180)
 
         try:
-            async with ctx.typing():
+            # === UPDATED TYPING LOGIC ===
+            # Respect the toggle to completely skip the typing indicator.
+            # This prevents Discord rate limits on the /typing endpoint
+            # (especially useful with multiple users, fast responses, or long generations).
+            show_typing = await self.config.show_typing()
+
+            if show_typing:
+                async with ctx.typing():
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.post(
+                            f"{base_url}{api_prefix}/chat",
+                            json={
+                                "model": model,
+                                "messages": messages,
+                                "stream": False,
+                                "options": {"temperature": temp},
+                            },
+                        ) as resp:
+                            if resp.status != 200:
+                                error = await resp.text()
+                                await ctx.send(f"LLM server error ({resp.status}): {error[:500]}")
+                                return
+                            data = await resp.json()
+            else:
+                # No typing indicator (avoids rate limiting entirely)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.post(
                         f"{base_url}{api_prefix}/chat",
@@ -159,28 +184,28 @@ class UncensoredLLM(commands.Cog):
         """Set the IP/DNS of the LLM server (Owner only)."""
         clean_host = self._sanitize_host(host)
         await self.config.host.set(clean_host)
-        await ctx.send(f"✅ Host updated to `{clean_host}`")
+        await ctx.send(f"Host updated to `{clean_host}`")
 
     @uncensoredllm.command()
     @commands.is_owner()
     async def setport(self, ctx, port: int):
         """Set the port (Owner only)"""
         await self.config.port.set(port)
-        await ctx.send(f"✅ Port updated to `{port}`")
+        await ctx.send(f"Port updated to `{port}`")
 
     @uncensoredllm.command()
     @commands.is_owner()
     async def setapiprefix(self, ctx, prefix: str):
         """Set the API path prefix (Owner only)"""
         await self.config.api_prefix.set(prefix)
-        await ctx.send(f"✅ API prefix updated to `{prefix}`")
+        await ctx.send(f"API prefix updated to `{prefix}`")
 
     @uncensoredllm.command()
     @commands.is_owner()
     async def setmodel(self, ctx, model: str):
         """Set default model (Owner only)"""
         await self.config.default_model.set(model)
-        await ctx.send(f"✅ Default model set to `{model}`")
+        await ctx.send(f"Default model set to `{model}`")
 
     @uncensoredllm.command()
     @commands.is_owner()
@@ -190,21 +215,21 @@ class UncensoredLLM(commands.Cog):
             await ctx.send("Temperature must be between 0.0 and 2.0")
             return
         await self.config.temperature.set(temp)
-        await ctx.send(f"✅ Temperature set to `{temp}`")
+        await ctx.send(f"Temperature set to `{temp}`")
 
     @uncensoredllm.command()
     @commands.is_owner()
     async def setsafety(self, ctx, *, prompt: str):
         """Set the hard safety instructions (Owner only)"""
         await self.config.safety_prompt.set(prompt)
-        await ctx.send("✅ Safety prompt updated.")
+        await ctx.send("Safety prompt updated.")
 
     @uncensoredllm.command()
     @commands.is_owner()
     async def setsystem(self, ctx, *, prompt: str):
         """Set the global system prompt (Owner only)"""
         await self.config.system_prompt.set(prompt)
-        await ctx.send("✅ System prompt updated.")
+        await ctx.send("System prompt updated.")
 
     @uncensoredllm.command()
     @commands.is_owner()
@@ -214,48 +239,16 @@ class UncensoredLLM(commands.Cog):
             await ctx.send("Max length must be at least 2.")
             return
         await self.config.max_conv_length.set(length)
-        await ctx.send(f"✅ Max conversation length set to `{length}` messages")
+        await ctx.send(f"Max conversation length set to `{length}`")
 
+    # ====================== NEW: TYPING TOGGLE ======================
     @uncensoredllm.command()
     @commands.is_owner()
-    async def setmention(self, ctx, enabled: bool):
-        """Enable or disable responding when the bot is pinged (Owner only)"""
-        await self.config.respond_to_mentions.set(enabled)
-        status = "enabled" if enabled else "disabled"
-        await ctx.send(f"✅ Bot mention response is now **{status}**.")
-
-    # ====================== PUBLIC COMMANDS ======================
-    @uncensoredllm.command()
-    async def clear(self, ctx):
-        """Manually delete the current channel's chat history"""
-        await self.config.channel(ctx.channel).history.set([])
-        await ctx.send("Chat history for this channel has been cleared.")
-
-    @uncensoredllm.command()
-    async def status(self, ctx):
-        """Show current configuration (Security enabled for non-owners)"""
-        host = await self.config.host()
-        port = await self.config.port()
-        api_prefix = await self.config.api_prefix()
-        model = await self.config.default_model()
-        temp = await self.config.temperature()
-        max_len = await self.config.max_conv_length()
-        system = await self.config.system_prompt()
-        safety = await self.config.safety_prompt()
-        mention_enabled = await self.config.respond_to_mentions()
-
-        if await self.bot.is_owner(ctx.author):
-            server_info = f"`{host}:{port}{api_prefix}`"
-        else:
-            server_info = "Configured remote LLM server (Security enabled)"
-
-        await ctx.send(
-            f"**UncensoredLLM Status**\n"
-            f"Server: {server_info}\n"
-            f"Default Model: `{model}`\n"
-            f"Temperature: `{temp}`\n"
-            f"Max history length: `{max_len}` messages\n"
-            f"Respond to mentions: `{'Enabled' if mention_enabled else 'Disabled'}`\n"
-            f"**System prompt:** {system[:150]}{'...' if len(system) > 150 else ''}\n"
-            f"**Safety prompt:** {safety[:150]}{'...' if len(safety) > 150 else ''}"
-        )
+    async def settyping(self, ctx, enabled: bool):
+        """Toggle the 'is typing...' indicator while the LLM is generating a response (Owner only).
+        
+        This prevents Discord rate limiting on the typing endpoint when turned OFF.
+        Use: true / yes / on / 1   or   false / no / off / 0"""
+        await self.config.show_typing.set(enabled)
+        status = "ENABLED" if enabled else "DISABLED"
+        await ctx.send(f"✅ Typing indicator is now **{status}**.")
