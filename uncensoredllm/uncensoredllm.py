@@ -111,17 +111,16 @@ class UncensoredLLM(commands.Cog):
         timeout = aiohttp.ClientTimeout(total=180)
 
         try:
-            # === FIXED TYPING LOGIC (1-second brief indicator) ===
-            # When enabled (default): shows "Bot is typing..." for exactly 1 second
-            # so the user immediately knows the bot received the message.
-            # This completely avoids Discord rate limiting on the typing endpoint.
+            # === FIXED & IMPROVED TYPING LOGIC (1-second brief indicator) ===
+            # Shows "Bot is typing..." for exactly 1 second, then stops.
+            # This gives instant visual feedback without keeping the indicator.
             show_typing = await self.config.show_typing()
 
             if show_typing:
-                await ctx.channel.trigger_typing()      # ← FIXED: correct method
-                await asyncio.sleep(1)                  # hold it visible for 1 second
+                async with ctx.typing():
+                    await asyncio.sleep(1)   # ← exactly 1 second of typing
 
-            # Now do the actual LLM request (no typing context manager)
+            # Now do the actual LLM request (no typing active)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     f"{base_url}{api_prefix}/chat",
@@ -235,10 +234,10 @@ class UncensoredLLM(commands.Cog):
         """Toggle the brief 'is typing...' indicator (Owner only).
         
         When ENABLED (default): shows "Bot is typing..." for exactly 1 second
-        so users know the bot is responding, then turns off.
+        so users know the bot received the message, then turns off.
         
-        This completely prevents Discord rate limiting on the typing endpoint
-        while still giving immediate visual feedback.
+        Uses Red's official ctx.typing() context manager → no attribute errors
+        and completely prevents Discord rate limiting on the typing endpoint.
         
         Use: true / yes / on / 1   or   false / no / off / 0"""
         await self.config.show_typing.set(enabled)
