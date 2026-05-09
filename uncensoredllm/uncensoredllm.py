@@ -1,5 +1,6 @@
 from redbot.core import commands, Config
 import aiohttp
+import asyncio  # ← NEW: needed for the 1-second typing delay
 from typing import List, Dict
 from urllib.parse import urlparse
 
@@ -21,7 +22,7 @@ class UncensoredLLM(commands.Cog):
             "safety_prompt": "You are a safe, responsible AI. Refuse profanity, illegal, harmful, or dangerous requests.",
             "max_conv_length": 30,
             "respond_to_mentions": True,
-            "show_typing": True,  # ← NEW: toggle for typing indicator to prevent rate limiting
+            "show_typing": True,  # ← default ON: shows a brief 1-second typing indicator
         }
         self.config.register_global(**defaults_global)
         self.config.register_channel(history=[])
@@ -110,46 +111,33 @@ class UncensoredLLM(commands.Cog):
         timeout = aiohttp.ClientTimeout(total=180)
 
         try:
-            # === UPDATED TYPING LOGIC ===
-            # Respect the toggle to completely skip the typing indicator.
-            # This prevents Discord rate limits on the /typing endpoint
-            # (especially useful with multiple users, fast responses, or long generations).
+            # === UPDATED TYPING LOGIC (1-second brief indicator) ===
+            # When enabled (default): shows "Bot is typing..." for exactly 1 second
+            # so the user immediately knows the bot received the message.
+            # This completely avoids Discord rate limits on the typing endpoint
+            # because we never hold the indicator open for the full generation time.
             show_typing = await self.config.show_typing()
 
             if show_typing:
-                async with ctx.typing():
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.post(
-                            f"{base_url}{api_prefix}/chat",
-                            json={
-                                "model": model,
-                                "messages": messages,
-                                "stream": False,
-                                "options": {"temperature": temp},
-                            },
-                        ) as resp:
-                            if resp.status != 200:
-                                error = await resp.text()
-                                await ctx.send(f"LLM server error ({resp.status}): {error[:500]}")
-                                return
-                            data = await resp.json()
-            else:
-                # No typing indicator (avoids rate limiting entirely)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(
-                        f"{base_url}{api_prefix}/chat",
-                        json={
-                            "model": model,
-                            "messages": messages,
-                            "stream": False,
-                            "options": {"temperature": temp},
-                        },
-                    ) as resp:
-                        if resp.status != 200:
-                            error = await resp.text()
-                            await ctx.send(f"LLM server error ({resp.status}): {error[:500]}")
-                            return
-                        data = await resp.json()
+                await ctx.trigger_typing()      # one-time typing indicator
+                await asyncio.sleep(1)          # hold it visible for 1 second
+
+            # Now do the actual LLM request (no typing context manager)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    f"{base_url}{api_prefix}/chat",
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": {"temperature": temp},
+                    },
+                ) as resp:
+                    if resp.status != 200:
+                        error = await resp.text()
+                        await ctx.send(f"LLM server error ({resp.status}): {error[:500]}")
+                        return
+                    data = await resp.json()
 
             assistant_content = (
                 data.get("message", {}).get("content") or "No response received."
@@ -241,14 +229,19 @@ class UncensoredLLM(commands.Cog):
         await self.config.max_conv_length.set(length)
         await ctx.send(f"Max conversation length set to `{length}`")
 
-    # ====================== NEW: TYPING TOGGLE ======================
+    # ====================== TYPING TOGGLE ======================
     @uncensoredllm.command()
     @commands.is_owner()
     async def settyping(self, ctx, enabled: bool):
-        """Toggle the 'is typing...' indicator while the LLM is generating a response (Owner only).
+        """Toggle the brief 'is typing...' indicator (Owner only).
         
-        This prevents Discord rate limiting on the typing endpoint when turned OFF.
+        When ENABLED (default): shows "Bot is typing..." for exactly 1 second
+        so users know the bot is responding, then turns off.
+        
+        This completely prevents Discord rate limiting on the typing endpoint
+        while still giving immediate visual feedback.
+        
         Use: true / yes / on / 1   or   false / no / off / 0"""
         await self.config.show_typing.set(enabled)
-        status = "ENABLED" if enabled else "DISABLED"
-        await ctx.send(f"✅ Typing indicator is now **{status}**.")
+        status = "ENABLED (1-second indicator)" if enabled else "DISABLED"
+        await ctx.send(f"✅ Brief typing indicator is now **{status}**.")
