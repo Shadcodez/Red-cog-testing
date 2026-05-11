@@ -1,4 +1,5 @@
 # steal/steal.py
+import asyncio
 import re
 from typing import List, Tuple
 
@@ -83,17 +84,29 @@ class Steal(commands.Cog):
             f"Found **{len(unique_assets)}** unique image asset(s):"
         )
 
-        # Send in batches of 10 embeds (Discord limit)
+        # Send in smaller batches with delays to avoid rate limits
         asset_list = list(unique_assets.items())
-        for i in range(0, len(asset_list), 10):
+        BATCH_SIZE = 5  # Reduced from 10 for better reliability
+        for i in range(0, len(asset_list), BATCH_SIZE):
             embeds: List[discord.Embed] = []
-            for name, url in asset_list[i : i + 10]:
+            for name, url in asset_list[i : i + BATCH_SIZE]:
                 embed = discord.Embed(title=name, color=discord.Color.blurple())
                 embed.set_image(url=url)
                 embeds.append(embed)
+
             try:
                 await dm_channel.send(embeds=embeds)
-            except discord.HTTPException:
-                await dm_channel.send("⚠️ Some embeds failed to send (rate limit or size issue).")
+                await asyncio.sleep(1.2)  # Small delay to respect Discord DM rate limits
+            except discord.HTTPException as e:
+                # If a batch fails (rate limit or size), try sending one by one with longer delay
+                await dm_channel.send("⚠️ Batch failed — sending assets one at a time...")
+                for name, url in asset_list[i : i + BATCH_SIZE]:
+                    try:
+                        single_embed = discord.Embed(title=name, color=discord.Color.blurple())
+                        single_embed.set_image(url=url)
+                        await dm_channel.send(embed=single_embed)
+                        await asyncio.sleep(2.0)
+                    except discord.HTTPException:
+                        await dm_channel.send(f"⚠️ Could not send: **{name}** (rate limit or Discord issue)")
 
         await ctx.tick()  # Green checkmark reaction to confirm success
