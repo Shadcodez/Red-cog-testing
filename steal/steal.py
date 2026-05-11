@@ -14,7 +14,7 @@ class Steal(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
 
-    @commands.command(name="steal", aliases=["s", "stealpic", "stealassets"])
+    @commands.command(name="steal", aliases=["illtakethat", "mine", "yoink"])
     async def steal(self, ctx: commands.Context):
         """DM yourself pictures of all custom emojis, stickers, and reaction emojis from the message you're replying to.
 
@@ -100,7 +100,7 @@ class Steal(commands.Cog):
                         await dm_channel.send(
                             f"⏳ Rate limited on **{name}** — waiting 12 seconds before retry..."
                         )
-                        await asyncio.sleep(12.0)
+                        await asyncio.sleep(15.0)
                         continue
                     else:
                         # Final failure
@@ -109,7 +109,7 @@ class Steal(commands.Cog):
                             f"URL: <{url}>\n"
                             f"Error: {str(e)[:150]}"
                         )
-                        await asyncio.sleep(2.0)
+                        await asyncio.sleep(5.0)
                         break
 
         # Final confirmation
