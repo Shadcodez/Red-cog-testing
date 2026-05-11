@@ -1,0 +1,11 @@
+// steal/info.json
+{
+    "author": ["Grok"],
+    "description": "Reply to any message with [p]steal (or [p]s / [p]stealpic) and the bot will privately DM you image embeds of every custom emoji in the message content, every sticker attached to the message, and every custom emoji used as a reaction. Perfect for stealing rare emojis/stickers without cluttering the chat.",
+    "short": "DM (steal) emoji/sticker/reaction pictures from any replied-to message.",
+    "tags": ["utility", "emoji", "sticker", "reaction", "discord", "steal"],
+    "end_user_data_statement": "This cog does not store any end-user data. It only reads the replied-to message and sends images directly to the user's DMs.",
+    "hidden": false,
+    "install_msg": "✅ Steal cog installed!\nUse `[p]steal` while **replying** to a message to steal all custom emojis, stickers, and reactions and have them DM'd to you as pictures.",
+    "requirements": []
+}
