@@ -44,7 +44,7 @@ class ScamDetector(commands.Cog):
         self.config.register_guild(
             enabled=False,
             alert_channel=None,
-            punishment_type="timeout",   # "timeout" or "role"
+            punishment_type="timeout",
             duration_days=7,
             scam_role=None,
             delete_message=True,
@@ -55,26 +55,28 @@ class ScamDetector(commands.Cog):
             immune_roles=[]
         )
 
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     @checks.admin_or_permissions(manage_guild=True)
-    async def scamset(self, ctx):
-        """Configure ScamDetector."""
+    async def scam(self, ctx):
+        """Main scam detection command group.
+
+        Use [p]help scam to see all subcommands."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @scamset.command()
+    @scam.command()
     async def enable(self, ctx, state: bool = True):
-        """Enable/disable the cog."""
+        """Enable or disable scam detection."""
         await self.config.guild(ctx.guild).enabled.set(state)
         await ctx.send(f"Scam detection is now {'enabled' if state else 'disabled'}.")
 
-    @scamset.command()
+    @scam.command()
     async def alertchannel(self, ctx, channel: discord.TextChannel = None):
-        """Set the staff alert channel."""
+        """Set the staff alert channel (or clear it)."""
         await self.config.guild(ctx.guild).alert_channel.set(channel.id if channel else None)
         await ctx.send(f"Alert channel {'set to ' + channel.mention if channel else 'cleared'}.")
 
-    @scamset.command()
+    @scam.command()
     async def punishment(self, ctx, ptype: str = "timeout", days: int = 7):
         """Set punishment type: timeout or role + duration in days."""
         if ptype.lower() not in ["timeout", "role"]:
@@ -83,13 +85,13 @@ class ScamDetector(commands.Cog):
         await self.config.guild(ctx.guild).duration_days.set(days)
         await ctx.send(f"Punishment set to **{ptype}** for **{days}** days.")
 
-    @scamset.command()
+    @scam.command()
     async def scamrole(self, ctx, role: discord.Role = None):
         """Set the role to add when using role punishment."""
         await self.config.guild(ctx.guild).scam_role.set(role.id if role else None)
         await ctx.send(f"Scam role {'set to ' + role.name if role else 'cleared'}.")
 
-    @scamset.command()
+    @scam.command()
     async def keywords(self, ctx, *, action: str):
         """Manage keywords: add <word>, remove <word>, list, clear"""
         cfg = self.config.guild(ctx.guild)
@@ -121,9 +123,9 @@ class ScamDetector(commands.Cog):
         else:
             await ctx.send_help(ctx.command)
 
-    @scamset.command()
+    @scam.command()
     async def updatedomains(self, ctx):
-        """Update bad domains from public scam list."""
+        """Update bad domains from public scam list (highly recommended)."""
         async with aiohttp.ClientSession() as session:
             async with session.get("https://raw.githubusercontent.com/Discord-AntiScam/scam-links/main/list.txt") as resp:
                 if resp.status != 200:
@@ -133,15 +135,15 @@ class ScamDetector(commands.Cog):
                 await self.config.guild(ctx.guild).bad_domains.set(list(set(domains)))
                 await ctx.send(f"✅ Updated with **{len(domains)}** bad domains.")
 
-    @scamset.command()
+    @scam.command()
     async def imagethreshold(self, ctx, number: int):
-        """Set image threshold (0 to disable). Default is 4."""
+        """Set image threshold (0 to disable). Your original 4-image detection."""
         await self.config.guild(ctx.guild).image_threshold.set(number)
         await ctx.send(f"Image threshold set to **{number}**.")
 
-    @commands.command()
+    @scam.command()
     @checks.mod_or_permissions(manage_messages=True)
-    async def scamundo(self, ctx, member: discord.Member):
+    async def undo(self, ctx, member: discord.Member):
         """Undo the last scam punishment for a user."""
         cfg = self.config.guild(ctx.guild)
         ptype = await cfg.punishment_type()
@@ -221,7 +223,7 @@ class ScamDetector(commands.Cog):
             if domain and any(bad in domain for bad in bad_domains):
                 reasons.append("Bad domain")
 
-        # Image spam (your original 4-image request)
+        # Image spam (exactly what you asked for originally)
         image_count = sum(1 for a in message.attachments if a.content_type and a.content_type.startswith("image/"))
         threshold = await cfg.image_threshold()
         if threshold > 0 and image_count >= threshold:
