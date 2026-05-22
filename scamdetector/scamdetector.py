@@ -7,29 +7,41 @@ from redbot.core.bot import Red
 import aiohttp
 
 class ScamAlertView(discord.ui.View):
-    def __init__(self, cog, member: discord.Member, reason: str):
+    def __init__(self, cog, member: discord.Member, reason: str, punishment_enabled: bool = True):
         super().__init__(timeout=7200)  # 2 hours
         self.cog = cog
         self.member = member
         self.reason = reason
+        self.punishment_enabled = punishment_enabled
 
-    @discord.ui.button(label="Apply Punishment", style=discord.ButtonStyle.danger)
-    async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.punishment_enabled:
+            self.add_item(discord.ui.Button(
+                label="Apply Punishment",
+                style=discord.ButtonStyle.danger,
+                custom_id="apply_punishment"
+            ))
+        self.add_item(discord.ui.Button(
+            label="Dismiss",
+            style=discord.ButtonStyle.secondary,
+            custom_id="dismiss_alert"
+        ))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not interaction.user.guild_permissions.manage_messages:
             await interaction.response.send_message("You need Manage Messages permission.", ephemeral=True)
-            return
+            return False
+        return True
 
+    @discord.ui.button(label="Apply Punishment", style=discord.ButtonStyle.danger, custom_id="apply_punishment")
+    async def apply(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.apply_punishment(interaction.guild, self.member, interaction.user, self.reason)
         await interaction.response.edit_message(
             content=f"✅ Punishment applied to {self.member} by {interaction.user}.", 
             view=None
         )
 
-    @discord.ui.button(label="Dismiss", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Dismiss", style=discord.ButtonStyle.secondary, custom_id="dismiss_alert")
     async def dismiss(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.manage_messages:
-            await interaction.response.send_message("You need Manage Messages permission.", ephemeral=True)
-            return
         await interaction.response.edit_message(
             content=f"❌ Alert dismissed by {interaction.user} (no action taken).", 
             view=None
@@ -47,22 +59,37 @@ class ScamDetector(commands.Cog):
             punishment_type="timeout",
             duration_days=7,
             scam_role=None,
+            punishment_enabled=True,      # Allows notification-only mode
             delete_message=True,
             keywords=["free nitro", "nitro gift", "claim nitro", "discord gift", "limited nitro", "you've been reported", "account suspension", "free gift", "claim now", "steam gift"],
             bad_domains=[],
             image_threshold=4,
-            min_account_age_days=0,
+            min_account_age_days=0,       # 0 = disabled (off by default)
             immune_roles=[]
         )
 
     @commands.group(invoke_without_command=True)
     @checks.admin_or_permissions(manage_guild=True)
     async def scam(self, ctx):
-        """Main scam detection command group.
-
-        Use [p]help scam to see all subcommands."""
+        """Main scam detection command group."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
+
+    @scam.command()
+    async def settings(self, ctx):
+        """Show current ScamDetector configuration."""
+        cfg = await self.config.guild(ctx.guild).all()
+        embed = discord.Embed(title="ScamDetector Settings", color=discord.Color.blue())
+        embed.add_field(name="Enabled", value=cfg["enabled"], inline=True)
+        embed.add_field(name="Notification Only (No Punishment)", value=not cfg["punishment_enabled"], inline=True)
+        embed.add_field(name="Delete Message", value=cfg["delete_message"], inline=True)
+        embed.add_field(name="Punishment Type", value=cfg["punishment_type"], inline=True)
+        embed.add_field(name="Duration", value=f"{cfg['duration_days']} days", inline=True)
+        embed.add_field(name="Image Threshold", value=cfg["image_threshold"], inline=True)
+        embed.add_field(name="Min Account Age", value=f"{cfg['min_account_age_days']} days (0 = off)", inline=True)
+        embed.add_field(name="Alert Channel", value=f"<#{cfg['alert_channel']}>" if cfg["alert_channel"] else "Not set", inline=False)
+        embed.add_field(name="Immune Roles", value=len(cfg["immune_roles"]), inline=True)
+        await ctx.send(embed=embed)
 
     @scam.command()
     async def enable(self, ctx, state: bool = True):
@@ -86,10 +113,65 @@ class ScamDetector(commands.Cog):
         await ctx.send(f"Punishment set to **{ptype}** for **{days}** days.")
 
     @scam.command()
+    async def punishmentenable(self, ctx, state: bool = True):
+        """Enable or disable the punishment button (notification-only mode)."""
+        await self.config.guild(ctx.guild).punishment_enabled.set(state)
+        await ctx.send(f"Punishment button is now {'enabled' if state else 'disabled'} (notification-only mode).")
+
+    @scam.command()
     async def scamrole(self, ctx, role: discord.Role = None):
         """Set the role to add when using role punishment."""
         await self.config.guild(ctx.guild).scam_role.set(role.id if role else None)
         await ctx.send(f"Scam role {'set to ' + role.name if role else 'cleared'}.")
+
+    @scam.command()
+    async def delete(self, ctx, state: bool = True):
+        """Enable or disable automatic message deletion on detection."""
+        await self.config.guild(ctx.guild).delete_message.set(state)
+        await ctx.send(f"Message deletion on detection is now {'enabled' if state else 'disabled'}.")
+
+    @scam.command()
+    async def accountage(self, ctx, days: int):
+        """Set minimum account age in days to flag as potential scam (0 to disable)."""
+        if days < 0:
+            days = 0
+        await self.config.guild(ctx.guild).min_account_age_days.set(days)
+        await ctx.send(f"Minimum account age set to **{days}** days (0 = disabled).")
+
+    @scam.group(invoke_without_command=True)
+    async def immunerole(self, ctx):
+        """Manage immune roles (staff roles that will never trigger alerts)."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @immunerole.command(name="add")
+    async def immunerole_add(self, ctx, role: discord.Role):
+        """Add a role to the immune list."""
+        async with self.config.guild(ctx.guild).immune_roles() as roles:
+            if role.id not in roles:
+                roles.append(role.id)
+                await ctx.send(f"✅ {role.name} is now immune.")
+            else:
+                await ctx.send("Role is already immune.")
+
+    @immunerole.command(name="remove")
+    async def immunerole_remove(self, ctx, role: discord.Role):
+        """Remove a role from the immune list."""
+        async with self.config.guild(ctx.guild).immune_roles() as roles:
+            if role.id in roles:
+                roles.remove(role.id)
+                await ctx.send(f"✅ {role.name} is no longer immune.")
+            else:
+                await ctx.send("Role was not in the immune list.")
+
+    @immunerole.command(name="list")
+    async def immunerole_list(self, ctx):
+        """List all immune roles."""
+        roles = await self.config.guild(ctx.guild).immune_roles()
+        if not roles:
+            return await ctx.send("No immune roles set.")
+        role_mentions = [f"<@&{rid}>" for rid in roles if ctx.guild.get_role(rid)]
+        await ctx.send(f"Immune roles: {', '.join(role_mentions) if role_mentions else 'None'}")
 
     @scam.command()
     async def keywords(self, ctx, *, action: str):
@@ -137,7 +219,7 @@ class ScamDetector(commands.Cog):
 
     @scam.command()
     async def imagethreshold(self, ctx, number: int):
-        """Set image threshold (0 to disable). Your original 4-image detection."""
+        """Set image threshold (0 to disable)."""
         await self.config.guild(ctx.guild).image_threshold.set(number)
         await ctx.send(f"Image threshold set to **{number}**.")
 
@@ -174,7 +256,11 @@ class ScamDetector(commands.Cog):
         if not await guild_cfg.enabled():
             return
 
-        # Immunity check
+        # Automatic staff immunity (Manage Messages or higher)
+        if message.author.guild_permissions.manage_messages:
+            return
+
+        # Configured immune roles
         if any(role.id in await guild_cfg.immune_roles() for role in message.author.roles):
             return
 
@@ -197,6 +283,8 @@ class ScamDetector(commands.Cog):
         if not channel:
             return
 
+        punishment_enabled = await guild_cfg.punishment_enabled()
+
         embed = discord.Embed(title="🚨 Potential Scam Detected", color=discord.Color.red())
         embed.add_field(name="User", value=message.author.mention, inline=False)
         embed.add_field(name="Reason", value=reason, inline=False)
@@ -204,7 +292,10 @@ class ScamDetector(commands.Cog):
         embed.add_field(name="Jump Link", value=message.jump_url, inline=False)
         embed.timestamp = discord.utils.utcnow()
 
-        view = ScamAlertView(self, message.author, reason)
+        if not punishment_enabled:
+            embed.set_footer(text="Notification-only mode — punishment button disabled")
+
+        view = ScamAlertView(self, message.author, reason, punishment_enabled=punishment_enabled)
         await channel.send(embed=embed, view=view)
 
     async def detect_scam(self, message: discord.Message, cfg):
@@ -223,11 +314,18 @@ class ScamDetector(commands.Cog):
             if domain and any(bad in domain for bad in bad_domains):
                 reasons.append("Bad domain")
 
-        # Image spam (exactly what you asked for originally)
+        # Image spam
         image_count = sum(1 for a in message.attachments if a.content_type and a.content_type.startswith("image/"))
         threshold = await cfg.image_threshold()
         if threshold > 0 and image_count >= threshold:
             reasons.append(f"{image_count} images")
+
+        # Account age check
+        min_age = await cfg.min_account_age_days()
+        if min_age > 0:
+            age_days = (discord.utils.utcnow() - message.author.created_at).days
+            if age_days < min_age:
+                reasons.append(f"New account (<{min_age} days)")
 
         if reasons:
             return True, " + ".join(reasons)
