@@ -1,0 +1,9 @@
+{
+    "author": ["S"],
+    "description": "Modern Discord scam detector. Detects Nitro phishing, image spam (including 4+ images), bad links, etc. Alerts staff with Apply/Dismiss buttons and applies timeout or role punishment.",
+    "short": "Advanced anti-scam cog with staff review",
+    "requirements": [],
+    "tags": ["moderation", "anti-scam", "security"],
+    "min_bot_version": "3.5.0",
+    "hidden": false
+}
