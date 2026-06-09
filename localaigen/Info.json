@@ -1,0 +1,9 @@
+{
+    "author": ["SHADOW6six"],
+    "short": "Local AI Image Generator integration for techjarves/Local-AI-Image-Generator",
+    "description": "Generate images via self-hosted backend. Supports mentions/replies, context menus, per-guild and per-channel toggles (disabled by default).",
+    "install_msg": "Thanks for installing! Use [p]drawset to configure host/port and enable the cog per server/channel.",
+    "tags": ["image", "ai", "stable-diffusion", "local", "generation"],
+    "min_bot_version": "3.5.0",
+    "hidden": false
+}
