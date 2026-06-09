@@ -3,7 +3,6 @@ from discord.ext import commands
 from discord import app_commands
 import aiohttp
 import asyncio
-import json
 import io
 import base64
 import logging
@@ -32,7 +31,19 @@ class LocalAIImageGen(commands.Cog):
         self.config.register_guild(enabled=False)
         self.config.register_channel(enabled=False)
 
+        self._context_menu = None
+
+    async def cog_load(self):
+        # Register context menu properly (fixes decorator issues in cogs)
+        self._context_menu = app_commands.ContextMenu(
+            name="Generate Image",
+            callback=self.generate_from_message,
+        )
+        self.bot.tree.add_command(self._context_menu)
+
     async def cog_unload(self):
+        if self._context_menu:
+            self.bot.tree.remove_command(self._context_menu.name, type=self._context_menu.type)
         await self.session.close()
 
     # ====================== PERMISSIONS CHECK ======================
@@ -75,7 +86,6 @@ class LocalAIImageGen(commands.Cog):
         await self.config.default_steps.set(steps)
         await ctx.send(f"✅ Default steps set to `{steps}`.")
 
-    # Guild toggle (Owner only for safety)
     @drawset.command(name="guild")
     @commands.is_owner()
     async def guild_toggle(self, ctx: commands.Context, state: str):
@@ -87,7 +97,6 @@ class LocalAIImageGen(commands.Cog):
         status = "enabled" if enabled else "disabled"
         await ctx.send(f"✅ Image generation has been **{status}** for this server.")
 
-    # Channel toggle (Server admins + Owner)
     @drawset.command(name="channel")
     @commands.has_guild_permissions(manage_channels=True)
     async def channel_toggle(self, ctx: commands.Context, state: str):
@@ -128,7 +137,6 @@ class LocalAIImageGen(commands.Cog):
                     log.error(f"Backend returned {resp.status}: {error_text[:500]}")
                     return None
                 data = await resp.json()
-                # Handle different possible response formats
                 b64 = None
                 if "data" in data and isinstance(data["data"], list):
                     b64 = data["data"][0].get("b64_json")
@@ -148,7 +156,6 @@ class LocalAIImageGen(commands.Cog):
         if message.author.bot:
             return
 
-        # Check mention or reply to bot
         is_mention = self.bot.user in message.mentions
         is_reply = (message.reference and message.reference.resolved and 
                    message.reference.resolved.author == self.bot.user)
@@ -160,9 +167,8 @@ class LocalAIImageGen(commands.Cog):
         if not (content_lower.startswith("draw ") or content_lower.startswith("generate ")):
             return
 
-        # Permission check
         if not await self.is_enabled(message.guild, message.channel):
-            return  # Silent fail when disabled
+            return
 
         prompt = message.content.split(maxsplit=1)[1].strip()
         if not prompt:
@@ -194,9 +200,9 @@ class LocalAIImageGen(commands.Cog):
             else:
                 await ctx.send("❌ Failed to generate image. Please check backend and logs.")
 
-    # ====================== CONTEXT MENU ======================
-    @app_commands.context_menu(name="Generate Image")
+    # ====================== CONTEXT MENU CALLBACK ======================
     async def generate_from_message(self, interaction: discord.Interaction, message: discord.Message):
+        """Context menu callback for generating image from a message."""
         if not await self.is_enabled(interaction.guild, interaction.channel):
             return await interaction.response.send_message(
                 "❌ Image generation is disabled in this server or channel.", ephemeral=True)
