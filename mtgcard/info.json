@@ -1,10 +1,11 @@
 {
-    "author": ["SHADOW6six"],
+    "author": ["SHADOW6six", "Grok"],
     "name": "MTGCard",
-    "short": "Realistic Magic: The Gathering card creator using PNG templates",
-    "description": "Create custom MTG cards with high-quality PNG templates, your own art, and full text support. Gradient-free, template-based for maximum realism.",
-    "version": "3.1.0",
+    "short": "Tap-first unofficial Magic-style card studio",
+    "description": "Create unofficial Magic-style cards in chat with taps instead of typing. Real Scryfall mana symbols on the finished card, painted high-res frames, flavor text, and rarity stamps. Fan-made only — not affiliated with Wizards of the Coast.",
+    "version": "4.1.0",
     "requirements": ["pillow"],
     "tags": ["fun", "games", "mtg", "magic", "card", "generator"],
-    "min_bot_version": "3.4.0"
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog stores no persistent user data. Card drafts live in memory only for the length of an interactive session."
 }

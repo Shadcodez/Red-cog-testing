@@ -1,6 +1,5 @@
-from .mtgcard import MTGCardCog
+from .mtgcard import MTGCard
+
 
 async def setup(bot):
-    """Load the MTGCard cog."""
-    cog = MTGCardCog(bot)
-    await bot.add_cog(cog)
+    await bot.add_cog(MTGCard(bot))
