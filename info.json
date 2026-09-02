@@ -1,0 +1,7 @@
+{
+    "author": ["Void"],
+    "name": "VoidCogs",
+    "short": "Moderation cogs including Void isolation.",
+    "description": "A Red Discord Bot cog repository containing Void, a role-isolation moderation tool that hides every channel from a punished member for a set duration and logs through Red's modlog.",
+    "install_msg": "Thanks for adding VoidCogs. Install the Void cog with `[p]cog install <repo> void` then `[p]load void`. Run `[p]voidset setup` in each server after loading."
+}

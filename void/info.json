@@ -1,0 +1,15 @@
+{
+    "author": ["Void"],
+    "name": "Void",
+    "short": "Hide a member from every channel by applying an isolation role.",
+    "description": "Void strips a member's assignable roles, caches them, and applies a configurable isolation role whose channel overwrites deny viewing text, forum, voice, stage, and category channels. Supports optional duration (like Mutes), restores roles on unvoid, offers staff a private DM + modal to message the member, and creates Red modlog cases (`void` / `unvoid`).",
+    "install_msg": "Void installed. Load it with `[p]load void`, then run `[p]voidset setup` in each server. The bot needs Manage Roles and Manage Channels. Place the bot's role above the Void role. This cog stores member role IDs, expiry timestamps, moderator IDs, and optional reasons in Red Config until the void ends or data is deleted.",
+    "end_user_data_statement": "This cog stores Discord user IDs, cached role IDs for members currently (or previously, until cleaned) isolated, optional expiry timestamps, the moderator's user ID, and optional punishment reasons. Data is used only to enforce and reverse Void actions. It is removed when a member is unvoided, when `[p]mydata forgetme` is processed for that user, or when a guild's config is cleared.",
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 10, 0],
+    "hidden": false,
+    "disabled": false,
+    "requirements": [],
+    "tags": ["moderation", "mute", "isolation", "roles", "modlog", "utility"],
+    "permissions": ["manage_roles", "manage_channels", "embed_links", "send_messages"]
+}
