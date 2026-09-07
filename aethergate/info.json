@@ -1,0 +1,7 @@
+{
+    "author": ["Grok"],
+    "name": "AetherGate",
+    "short": "Futuristic Red cogs for access control.",
+    "description": "Repository containing AetherGate, a modern Red Discord Bot cog that forges access roles and paints per-channel permission overwrites through an interactive lattice UI.",
+    "install_msg": "Repo added. Install the cog with `[p]cog install <repo> aethergate` then `[p]load aethergate`."
+}

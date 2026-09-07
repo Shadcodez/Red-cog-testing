@@ -1,0 +1,21 @@
+{
+    "author": ["Grok"],
+    "short": "Futuristic per-channel role access lattice for View, Speak, Embed, and Pics.",
+    "description": "AetherGate forges a named access role and lets moderators paint per-channel overwrites through an interactive holopanel. Operators toggle View, Speak, Embed Links, Post Pics, History, React, Threads, Connect, Voice, and Stream as allow / deny / inherit. Channels can be picked with Discord selects, walked one-by-one in Channel Lab, or typed as #channel #channel #channel. Preset buttons and selects load Observer, Talker, Media, Voice, Ghost, and Inherit Sweep templates. Edits, renames, live scans, and safe hierarchy checks are built in.",
+    "install_msg": "AetherGate is online. Load it with `[p]load aethergate`, then forge a node with `[p]agate create <name>`. The holopanel handles the rest. Bot needs Manage Roles + Manage Channels.",
+    "end_user_data_statement": "Stores the user ID of whoever created or adopted a managed role, the role ID, and the last permission template. No message content is stored. Deletion requests clear the stored creator ID.",
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 10, 0],
+    "tags": [
+        "roles",
+        "permissions",
+        "moderation",
+        "utility",
+        "channels",
+        "overwrites",
+        "admin"
+    ],
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
