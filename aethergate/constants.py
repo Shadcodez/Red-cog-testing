@@ -32,7 +32,7 @@ SIGNALS: Dict[str, Signal] = {
         "view",
         "view_channel",
         "View",
-        "👁",
+        "👀",
         "See the channel (and join voice rooms).",
         ("both",),
     ),
@@ -48,7 +48,7 @@ SIGNALS: Dict[str, Signal] = {
         "embed",
         "embed_links",
         "Embed",
-        "⧉",
+        "🔗",
         "Links auto-unfurl into rich embeds.",
         ("text",),
     ),
@@ -56,7 +56,7 @@ SIGNALS: Dict[str, Signal] = {
         "pics",
         "attach_files",
         "Post Pics",
-        "🖼",
+        "📷",
         "Upload images, videos, and other files.",
         ("text",),
     ),
@@ -96,7 +96,7 @@ SIGNALS: Dict[str, Signal] = {
         "voice",
         "speak",
         "Voice",
-        "🎙",
+        "🎤",
         "Talk in voice channels.",
         ("voice",),
     ),
@@ -201,12 +201,12 @@ PRESETS: Dict[str, Dict[str, Optional[bool]]] = {
 }
 
 PRESET_META = {
-    "observer": ("Silent Observer", "👁", "See + history. No speaking, no media."),
+    "observer": ("Silent Observer", "👀", "See + history. No speaking, no media."),
     "talker": ("Talker", "💬", "Chat + embeds. No file uploads."),
-    "media": ("Media Node", "🖼", "Full text: speak, embed, post pics."),
-    "voice": ("Voice Node", "🎙", "Connect, speak, stream. Mute text."),
-    "ghost": ("Ghost", "🕳", "Explicit deny on every signal."),
-    "clear": ("Inherit Sweep", "♻", "Wipe the overwrite. Fall back to role defaults."),
+    "media": ("Media Node", "📷", "Full text: speak, embed, post pics."),
+    "voice": ("Voice Node", "🎤", "Connect, speak, stream. Mute text."),
+    "ghost": ("Ghost", "👻", "Explicit deny on every signal."),
+    "clear": ("Inherit Sweep", "♻️", "Wipe the overwrite. Fall back to role defaults."),
 }
 
 
