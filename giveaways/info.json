@@ -1,0 +1,26 @@
+{
+    "author": [
+        "shad"
+    ],
+    "name": "Giveaways",
+    "short": "Interactive giveaway builder with timers, edits, cancels, and rerolls.",
+    "description": "Create giveaways with an interactive button/modal builder (similar to EmbedCreator), or skip it with flags. Features persistent enter/leave buttons, chunked timers that survive reloads, cancel/end/edit/reroll, role requirements, bonus tickets, account/server age gates, and Red Permissions cog compatible checks.",
+    "install_msg": "Thanks for installing Giveaways by shad. Load with `[p]load giveaways`, then run `[p]giveaway`. That opens a private popup form, then a private editor. Setup prompts delete themselves.",
+    "end_user_data_statement": "This cog stores Discord user IDs of giveaway hosts and entrants, along with ticket counts, until the giveaway is cleaned up. No other personal data is stored.",
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 10, 0],
+    "hidden": false,
+    "disabled": false,
+    "required_cogs": {},
+    "requirements": [],
+    "tags": [
+        "giveaway",
+        "giveaways",
+        "raffle",
+        "buttons",
+        "modals",
+        "utility",
+        "fun"
+    ],
+    "type": "COG"
+}
