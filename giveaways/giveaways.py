@@ -636,6 +636,10 @@ class Giveaways(commands.Cog):
             draft["image"] = options.image
         if options.thumbnail:
             draft["thumbnail"] = options.thumbnail
+        if options.bonus:
+            extra = max(1, min(int(options.bonus_tickets or 1), 50))
+            draft["bonus_roles"] = {str(options.bonus.id): extra}
+            draft["bonus_ticket_count"] = extra
         return draft
 
     def track_setup_message(self, message: Optional[discord.Message]) -> None:

@@ -392,9 +392,15 @@ class RequirementsModal(discord.ui.Modal, title="Entry requirements"):
         required=False,
         max_length=4,
     )
+    bonus_role = discord.ui.TextInput(
+        label="Bonus ticket role (mention or ID)",
+        placeholder="Optional — e.g. @Nitro or 123456789012345678",
+        required=False,
+        max_length=80,
+    )
     bonus_tickets = discord.ui.TextInput(
-        label="Bonus tickets for required role",
-        placeholder="0",
+        label="Extra tickets for that bonus role",
+        placeholder="1",
         required=False,
         max_length=2,
     )
@@ -405,8 +411,12 @@ class RequirementsModal(discord.ui.Modal, title="Entry requirements"):
         self.account_days.default = str(view.draft.get("min_account_days") or 0)
         self.server_days.default = str(view.draft.get("min_server_days") or 0)
         bonus = view.draft.get("bonus_roles") or {}
-        first = next(iter(bonus.values()), 0)
-        self.bonus_tickets.default = str(first or 0)
+        if bonus:
+            rid = next(iter(bonus.keys()))
+            self.bonus_role.default = rid
+            self.bonus_tickets.default = str(bonus.get(rid) or 1)
+        else:
+            self.bonus_tickets.default = str(view.draft.get("bonus_ticket_count") or 1)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         def parse_int(raw: str, lo: int, hi: int) -> int:
@@ -416,13 +426,27 @@ class RequirementsModal(discord.ui.Modal, title="Entry requirements"):
         try:
             self.builder.draft["min_account_days"] = parse_int(str(self.account_days.value), 0, 3650)
             self.builder.draft["min_server_days"] = parse_int(str(self.server_days.value), 0, 3650)
-            extra = parse_int(str(self.bonus_tickets.value), 0, 50)
+            extra = parse_int(str(self.bonus_tickets.value) or "1", 1, 50)
         except ValueError:
             await interaction.response.send_message("Use whole numbers for those fields.", ephemeral=True)
             return
-        roles = list(self.builder.draft.get("required_roles") or [])
-        if extra and roles:
-            self.builder.draft["bonus_roles"] = {str(roles[0]): extra}
+
+        raw_role = (str(self.bonus_role.value) or "").strip()
+        role_id = None
+        if raw_role:
+            digits = "".join(ch for ch in raw_role if ch.isdigit())
+            if digits:
+                role_id = int(digits)
+            else:
+                await interaction.response.send_message(
+                    "Could not read that bonus role. Use a mention or ID.",
+                    ephemeral=True,
+                )
+                return
+
+        self.builder.draft["bonus_ticket_count"] = extra
+        if role_id:
+            self.builder.draft["bonus_roles"] = {str(role_id): extra}
         else:
             self.builder.draft["bonus_roles"] = {}
         await self.builder.refresh(interaction)
@@ -616,7 +640,6 @@ class GiveawayBuilderView(discord.ui.View):
     async def sel_role(self, interaction: discord.Interaction, select: discord.ui.RoleSelect) -> None:
         if not select.values:
             self.draft["required_roles"] = []
-            self.draft["bonus_roles"] = {}
         else:
             role = select.values[0]
             role_id = getattr(role, "id", None) or int(role)

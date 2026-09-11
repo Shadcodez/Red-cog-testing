@@ -54,6 +54,12 @@ class GiveawayFlags(FlagConverter, case_insensitive=True):
     min_server_days: int = commands.flag(name="server_age", aliases=["min_server"], default=0)
     button_label: Optional[str] = commands.flag(name="label", aliases=["button"], default=None)
     ping: Optional[discord.Role] = commands.flag(name="ping", aliases=["pingrole"], default=None)
+    bonus: Optional[discord.Role] = commands.flag(
+        name="bonus", aliases=["bonus_role", "extra_role"], default=None
+    )
+    bonus_tickets: int = commands.flag(
+        name="tickets", aliases=["bonus_tickets", "extra_tickets"], default=1
+    )
 
 
 class GiveawayEditFlags(FlagConverter, case_insensitive=True):
