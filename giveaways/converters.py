@@ -7,8 +7,7 @@ from typing import Optional
 
 import discord
 from redbot.core import commands
-from redbot.core.commands import FlagConverter, TimedeltaConverter
-from redbot.core.commands.converter import ColourConverter
+from redbot.core.commands import ColourConverter, FlagConverter, TimedeltaConverter
 
 
 class GiveawayFlags(FlagConverter, case_insensitive=True):

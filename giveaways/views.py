@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import discord
 from redbot.core import commands
-from redbot.core.commands.converter import ColourConverter, TimedeltaConverter
+from redbot.core.commands import ColourConverter, TimedeltaConverter
 
 from .helpers import (
     MAX_DESCRIPTION_LEN,
