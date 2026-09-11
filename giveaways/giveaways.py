@@ -59,6 +59,7 @@ class Giveaways(commands.Cog):
         self._ready = asyncio.Event()
         self._lock = asyncio.Lock()
         self._setup_messages: Dict[int, discord.Message] = {}
+        self._watchdog: Optional[asyncio.Task] = None
 
     def format_help_for_context(self, ctx: commands.Context) -> str:
         base = super().format_help_for_context(ctx)
@@ -83,11 +84,15 @@ class Giveaways(commands.Cog):
     async def cog_load(self) -> None:
         self._join_view = GiveawayJoinView(self)
         self.bot.add_view(self._join_view)
+        self._watchdog = self.bot.loop.create_task(self._watchdog_loop())
         self.bot.loop.create_task(self._resume_giveaways())
 
     async def cog_unload(self) -> None:
         if self._join_view:
             self._join_view.stop()
+        if self._watchdog and not self._watchdog.done():
+            self._watchdog.cancel()
+        self._watchdog = None
         for task in list(self._tasks.values()):
             task.cancel()
         self._tasks.clear()
@@ -145,8 +150,35 @@ class Giveaways(commands.Cog):
     def _cancel_timer(self, guild_id: int, message_id: int) -> None:
         key = self._task_key(guild_id, message_id)
         task = self._tasks.pop(key, None)
-        if task and not task.done():
+        current = asyncio.current_task()
+        # Never cancel the task that is currently ending the giveaway.
+        if task and not task.done() and task is not current:
             task.cancel()
+
+    async def _watchdog_loop(self) -> None:
+        """Safety net: end any giveaway whose timer task was lost or self-cancelled."""
+        try:
+            await self.bot.wait_until_red_ready()
+            while True:
+                await asyncio.sleep(15)
+                try:
+                    all_guilds = await self.config.all_guilds()
+                    now = ts_now()
+                    for guild_id, data in all_guilds.items():
+                        for gw in (data.get("giveaways") or {}).values():
+                            if not is_active(gw):
+                                continue
+                            if float(gw.get("end_ts") or 0) > now:
+                                continue
+                            mid = int(gw["message_id"])
+                            log.info("Watchdog ending expired giveaway %s/%s", guild_id, mid)
+                            await self.finish_giveaway(int(guild_id), mid, cancelled=False)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("Giveaway watchdog failed")
+        except asyncio.CancelledError:
+            return
 
     async def _timer(self, guild_id: int, message_id: int) -> None:
         """Sleep until end time in short chunks so cancel/edit apply quickly."""
@@ -434,8 +466,12 @@ class Giveaways(commands.Cog):
 
         channel = self.bot.get_channel(int(gw["channel_id"]))
         if channel is None:
-            return winners
-        if not hasattr(channel, "send"):
+            try:
+                channel = await self.bot.fetch_channel(int(gw["channel_id"]))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                log.warning("Could not fetch channel for giveaway %s", message_id)
+                return winners
+        if channel is None or not hasattr(channel, "send"):
             return winners
 
         prize = gw.get("prize") or "the prize"
