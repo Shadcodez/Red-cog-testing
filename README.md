@@ -1,70 +1,81 @@
-# VoidCogs
+# Giveaways
 
-Red Discord Bot cogs for isolating members behind a role that cannot see the server.
+A modern Red-DiscordBot cog by **shad**.
 
-## Void
+Button-based giveaways. `[p]giveaway` opens a private popup form, then a
+private EmbedCreator-style editor. Setup messages delete themselves.
 
-Void is a moderation cog in the same family as core Mutes. A moderator voids a member; the cog:
+## Install
 
-1. Creates (or reuses) a configurable **void** role
-2. Denies `view_channel` / `connect` (and related perms) for that role on every text, voice, stage, forum, category, and other guild channel
-3. Strips the member's assignable roles and caches them in Red Config
-4. Applies the void role so they can no longer see the server
-5. Optionally expires after a duration and restores the cached roles
-6. Offers the invoking staff member a **private DM** (30s timeout) asking whether to send the punished user an explanation; **Yes** opens a modal popup
-7. Writes `void` / `unvoid` cases through Red's existing modlog
-
-### Permissions
-
-The bot needs **Manage Roles** and **Manage Channels**. Put the bot's highest role above the Void role.
-
-Members with Discord's Administrator permission bypass channel overwrites. Void still strips assignable roles when the bot can manage them; the server owner cannot be voided.
-
-Managed roles (boosts, integrations, bots) cannot be removed by Discord and are left in place.
-
-### Install (Downloader)
+Place the `giveaways` folder in a directory you add with `[p]addpath`, then:
 
 ```
-[p]repo add VoidCogs <your-git-url>
-[p]cog install VoidCogs void
-[p]load void
-[p]voidset setup
+[p]load giveaways
+[p]help Giveaways
 ```
 
-### Install (local)
-
-```
-[p]addpath /path/to/VoidCogs
-[p]load void
-[p]voidset setup
-```
-
-`VoidCogs` is the parent folder that contains the `void` package.
-
-### Commands
+## Commands
 
 | Command | Who | What |
 | --- | --- | --- |
-| `[p]void <member> [duration] [reason]` | Mod | Isolate a member. Duration examples: `30m`, `2h`, `1d`, `1w2d`. |
-| `[p]unvoid <member> [reason]` | Mod | Remove Void and restore cached roles. |
-| `[p]activevoids` | Mod | List current Voids. |
-| `[p]voidset setup` | Admin | Create the role and apply channel overwrites. |
-| `[p]voidset rolename <name>` | Admin | Rename the Void role. |
-| `[p]voidset role <role>` | Admin | Use an existing role. |
-| `[p]voidset applyoverwrites` | Admin | Refresh overwrites on every channel. |
-| `[p]voidset defaulttime [duration]` | Admin | Default length when `[p]void` has no time. Clear by omitting duration. |
-| `[p]voidset hierarchy [true/false]` | Admin | Respect role hierarchy (default on). |
-| `[p]voidset settings` | Admin | Show this server's Void config. |
+| `[p]giveaway` | Mod / Manage Messages | Private setup form + editor |
+| `[p]giveaway cancel [id]` | Mod / Manage Messages | Cancel without drawing |
+| `[p]giveaway end [id]` | Mod / Manage Messages | End now and draw winners |
+| `[p]giveaway edit <id> ...` | Mod / Manage Messages | Change prize, time, winners, etc. |
+| `[p]giveaway reroll <id> [n]` | Mod / Manage Messages | Draw new winners from the same pool |
+| `[p]giveaway list` | Everyone | Active giveaways |
+| `[p]giveaway info <id>` | Everyone | Embed preview of stored data |
+| `[p]giveaway entries [id]` | Mod / Manage Messages | Entrant / ticket counts |
+| `[p]giveaway bonus <id> <role> <n>` | Mod / Manage Messages | Extra tickets for a role |
+| `[p]giveawayset` | Admin / Manage Guild | Server defaults |
 
-Modlog case types: `void`, `unvoid`. Toggle them with `[p]modlogset cases`.
+Aliases: `gaway`, `gw`. Settings group: `giveawayset` / `gset`.
 
-### Data
+## Interactive builder
 
-Cached role IDs, expiry time, moderator ID, and optional reason are stored in Red Config for members who are (or were, until cleaned) voided. `[p]mydata forgetme` and `red_delete_data_for_user` clear that user's records.
+`[p]giveaway` is the create command. Flow:
 
-### Notes
+1. The invoking message is deleted when the bot can manage messages.
+2. A short **Set up / Cancel** prompt is posted (45s, then it deletes itself).
+3. **Set up** opens a popup form: prize, duration, winners, description, colour.
+4. After submit, the prompt is deleted and a **private** editor appears (only you see it). That editor is the EmbedCreator-style UI.
+5. **Cancel** or dismissing the private message aborts at any time.
 
-- New channels get the Void overwrite automatically.
-- Rejoining while still voided re-applies the role.
-- Extra roles added while voided are removed again (managed / @everyone kept).
-- If the staff member's DMs are closed, the explanation prompt is skipped on prefix commands. Slash/`[p]void` as a hybrid command can still show an ephemeral prompt when the interaction exists.
+| Control | What it sets |
+| --- | --- |
+| Prize / Duration / Winners / Description / Colour | Core embed fields via modals |
+| Appearance | Image, thumbnail, enter-button label |
+| Requirements | Account age, server age, bonus tickets, host entry |
+| Host entry / DM winners | Toggle buttons |
+| Role menu | Required role |
+| Channel menu | Where the giveaway is posted |
+| Start giveaway | Posts the public giveaway |
+| Cancel | Aborts; private editor is cleared |
+
+`[p]giveaway edit <id>` with no flags opens the same menu against a live giveaway.
+
+To skip the menu: `[p]giveaway start builder: no duration: 1h prize: Nitro`
+
+Supported flags: `duration` (`time`, `ends`, `for`), `prize`, `winners`,
+`description`, `channel`, `require`, `blacklist`, `image`, `thumbnail`,
+`colour`, `allow_host`, `dm`, `builder`, `account_age`, `server_age`,
+`label`, `ping`.
+
+## Permissions
+
+Management commands use `@commands.mod_or_permissions(manage_messages=True)`.
+Settings use `@commands.admin_or_permissions(manage_guild=True)`.
+
+That works with Red's core mod/admin roles **and** the Permissions cog:
+
+```
+[p]permissions addrule allow giveaway start @Giveaway Staff
+[p]permissions addrule deny giveaway start #general
+```
+
+## Notes
+
+- Join buttons stay active across cog reloads (`timeout=None` persistent view).
+- Timers sleep in 30 second chunks so cancel / edit apply quickly.
+- Ended giveaways stay stored for 7 days so you can reroll, then they are cleaned up on next load.
+- `[p]mydata forgetme` removes that user's stored entries.
