@@ -18,7 +18,7 @@ from redbot.core.utils.chat_formatting import box, humanize_list, humanize_timed
 log = logging.getLogger("red.void.void")
 _ = Translator("Void", __file__)
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 THREE_MONTHS = 90 * 24 * 60 * 60
 DEFAULT_NULLVOID_TEXT = "Generating black hole.."
@@ -502,6 +502,7 @@ class Void(commands.Cog):
             nullvoid_duration=THREE_MONTHS,
             nullvoid_self_clean=True,
             nullvoid_self_delay=10,
+            sticky_voids={},
         )
         self.config.register_member(
             active=False,
@@ -514,6 +515,7 @@ class Void(commands.Cog):
         )
         self._unvoid_tasks: Dict[Tuple[int, int], asyncio.Task] = {}
         self._self_clean_tasks: List[asyncio.Task] = []
+        self._sticky_tasks: List[asyncio.Task] = []
         self._enforcing: set[Tuple[int, int]] = set()
         self._ready = asyncio.Event()
         self._loop_task: Optional[asyncio.Task] = None
@@ -536,12 +538,21 @@ class Void(commands.Cog):
         for task in list(self._self_clean_tasks):
             task.cancel()
         self._self_clean_tasks.clear()
+        for task in list(self._sticky_tasks):
+            task.cancel()
+        self._sticky_tasks.clear()
 
     async def red_delete_data_for_user(self, *, requester: str, user_id: int) -> None:
         all_members = await self.config.all_members()
         for guild_id, members in all_members.items():
             if user_id in members:
                 await self.config.member_from_ids(guild_id, user_id).clear()
+        all_guilds = await self.config.all_guilds()
+        for guild_id, data in all_guilds.items():
+            sticky = dict(data.get("sticky_voids") or {})
+            if str(user_id) in sticky:
+                sticky.pop(str(user_id), None)
+                await self.config.guild_from_id(guild_id).sticky_voids.set(sticky)
 
     async def _restore_and_watch(self) -> None:
         await self.bot.wait_until_red_ready()
@@ -568,6 +579,7 @@ class Void(commands.Cog):
                         asyncio.create_task(self._finish_void(member, moderator=guild.me, reason=_("Automatic unvoid"), automatic=True))
                     else:
                         await self.config.member_from_ids(guild_id, user_id).active.set(False)
+                        await self._clear_sticky(guild, user_id)
                 else:
                     self._arm_unvoid(guild_id, user_id, remaining)
 
@@ -587,6 +599,7 @@ class Void(commands.Cog):
             member = guild.get_member(user_id)
             if member is None:
                 await self.config.member_from_ids(guild_id, user_id).active.set(False)
+                await self._clear_sticky(guild, user_id)
                 return
             await self._finish_void(member, moderator=guild.me, reason=_("Automatic unvoid"), automatic=True)
         except asyncio.CancelledError:
@@ -671,6 +684,57 @@ class Void(commands.Cog):
         if mod == guild.owner or await self.bot.is_owner(mod):
             return True
         return mod.top_role > target.top_role
+
+    async def _set_sticky(self, guild: discord.Guild, user_id: int, until_ts: Optional[float]) -> None:
+        async with self.config.guild(guild).sticky_voids() as sticky:
+            sticky[str(user_id)] = until_ts
+
+    async def _clear_sticky(self, guild: discord.Guild, user_id: int) -> None:
+        async with self.config.guild(guild).sticky_voids() as sticky:
+            sticky.pop(str(user_id), None)
+
+    async def _void_record(self, guild: discord.Guild, user_id: int) -> Tuple[bool, Optional[float]]:
+        data = await self.config.member_from_ids(guild.id, user_id).all()
+        sticky = await self.config.guild(guild).sticky_voids()
+        until = data.get("until")
+        if until is None and str(user_id) in sticky:
+            until = sticky.get(str(user_id))
+        active = bool(data.get("active")) or str(user_id) in sticky
+        if not active:
+            return False, None
+        if until and float(until) <= _utc_now().timestamp():
+            await self.config.member_from_ids(guild.id, user_id).active.set(False)
+            await self._clear_sticky(guild, user_id)
+            return False, float(until)
+        return True, float(until) if until else None
+
+    async def _enforce_void_roles(self, member: discord.Member, reason: str) -> bool:
+        role = await self._get_void_role(member.guild)
+        if role is None or role >= member.guild.me.top_role:
+            return False
+        allowed = {r.id for r in member.roles if (r.managed or r.id == role.id) and not r.is_default()}
+        extras = [r for r in member.roles if not r.is_default() and r.id not in allowed]
+        need_add = role not in member.roles
+        if not extras and not need_add:
+            return True
+        new_roles = [r for r in member.roles if not r.is_default() and r.id in allowed]
+        if need_add:
+            new_roles.append(role)
+        key = (member.guild.id, member.id)
+        self._enforcing.add(key)
+        try:
+            await member.edit(roles=new_roles, reason=reason)
+            return True
+        except (discord.Forbidden, discord.HTTPException):
+            try:
+                if need_add:
+                    await member.add_roles(role, reason=reason)
+                return True
+            except (discord.Forbidden, discord.HTTPException):
+                log.debug("Sticky Void enforce failed for %s in %s", member.id, member.guild.id)
+                return False
+        finally:
+            self._enforcing.discard(key)
 
     # ---------------------------------------------------------------------
     # Core void / unvoid
@@ -769,6 +833,7 @@ class Void(commands.Cog):
                 "applied_at": created_at.timestamp(),
             }
         )
+        await self._set_sticky(guild, member.id, until_dt.timestamp() if until_dt else None)
 
         if until_dt is not None:
             self._arm_unvoid(guild.id, member.id, max((until_dt - _utc_now()).total_seconds(), 0))
@@ -856,6 +921,7 @@ class Void(commands.Cog):
                 "applied_at": None,
             }
         )
+        await self._clear_sticky(guild, member.id)
         old = self._unvoid_tasks.pop((guild.id, member.id), None)
         if old and not old.done():
             old.cancel()
@@ -921,24 +987,18 @@ class Void(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        data = await self.config.member(member).all()
-        if not data.get("active"):
+        active, _until = await self._void_record(member.guild, member.id)
+        if not active:
             return
-        until = data.get("until")
-        if until and until <= _utc_now().timestamp():
-            await self.config.member(member).active.set(False)
-            return
-        role = await self._get_void_role(member.guild)
-        if role is None:
-            return
-        key = (member.guild.id, member.id)
-        self._enforcing.add(key)
-        try:
-            await member.add_roles(role, reason=_("Re-applied Void after rejoin"))
-        except (discord.Forbidden, discord.HTTPException):
-            log.debug("Could not re-apply Void role to %s", member.id)
-        finally:
-            self._enforcing.discard(key)
+        task = asyncio.create_task(self._sticky_reapply(member.guild.id, member.id))
+        self._sticky_tasks.append(task)
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member) -> None:
+        # Keep the cached roles and sticky flag. Leaving does not end a Void.
+        active, _until = await self._void_record(member.guild, member.id)
+        if active:
+            log.debug("Voided member %s left %s; punishment stays sticky", member.id, member.guild.id)
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
@@ -947,27 +1007,35 @@ class Void(commands.Cog):
         key = (after.guild.id, after.id)
         if key in self._enforcing:
             return
-        data = await self.config.member(after).all()
-        if not data.get("active"):
+        active, _until = await self._void_record(after.guild, after.id)
+        if not active:
             return
-        role = await self._get_void_role(after.guild)
-        if role is None:
-            return
-        allowed = {r.id for r in after.roles if (r.managed or r.id == role.id) and not r.is_default()}
-        extras = [r for r in after.roles if not r.is_default() and r.id not in allowed]
-        need_add = role not in after.roles
-        if not extras and not need_add:
-            return
-        new_roles = [r for r in after.roles if not r.is_default() and r.id in allowed]
-        if need_add:
-            new_roles.append(role)
-        self._enforcing.add(key)
+        await self._enforce_void_roles(after, _("Sticky Void enforcement"))
+
+    async def _sticky_reapply(self, guild_id: int, user_id: int) -> None:
         try:
-            await after.edit(roles=new_roles, reason=_("Void enforcement"))
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+            # Immediate pass plus delayed passes so autorole/welcome cogs lose the race.
+            for wait in (0.0, 2.0, 8.0):
+                if wait:
+                    await asyncio.sleep(wait)
+                guild = self.bot.get_guild(guild_id)
+                if guild is None:
+                    return
+                member = guild.get_member(user_id)
+                if member is None:
+                    return
+                active, _until = await self._void_record(guild, user_id)
+                if not active:
+                    return
+                await self._enforce_void_roles(member, _("Sticky Void after rejoin"))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Sticky Void reapply failed for %s in %s", user_id, guild_id)
         finally:
-            self._enforcing.discard(key)
+            current = asyncio.current_task()
+            if current in self._sticky_tasks:
+                self._sticky_tasks.remove(current)
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role) -> None:

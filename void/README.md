@@ -81,6 +81,6 @@ Cached role IDs and names, expiry time, moderator ID, and optional reason are st
 ### Notes
 
 - New channels get the Void overwrite automatically.
-- Rejoining while still voided re-applies the role.
-- Extra roles added while voided are removed again (managed / @everyone kept).
+- Void is sticky. Leaving and rejoining does not end it. The role is re-applied on join (with extra passes so autorole cogs lose) until the timer ends or a mod runs `[p]unvoid`.
+- Extra roles added while voided are stripped again (managed / @everyone kept).
 - If the staff member's DMs are closed, the explanation prompt is skipped on prefix commands. Slash/`[p]void` as a hybrid command can still show an ephemeral prompt when the interaction exists.
