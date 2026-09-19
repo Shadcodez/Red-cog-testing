@@ -1,0 +1,21 @@
+{
+    "author": ["Grok", "AAA3A"],
+    "name": "VoidSanction",
+    "install_msg": "Thank you for installing **VoidSanction**, a fork of AAA3A's SimpleSanction.\nLoad it with `[p]load voidsaction` then use `[p]voidsanction @member`.\nSet per-action GIFs with `[p]setvoidsanction gif set <action> <url>`. Nullvoid uses the Void cog meme from `[p]nullvoidset`.",
+    "short": "Button sanction menu with cleanup prompts, Void/NullVoid, delayed self-clean, and per-action GIFs.",
+    "description": "A modern fork of SimpleSanction. Kick/ban ask how many days of messages to delete (0-7). Void and NullVoid call the Shadcodez Void cog; nullvoid keeps that cog's own meme GIF and cleanup. The menu deletes itself 10 seconds after an action or after 2.5 minutes idle. Optional per-action GIF URLs post before the sanction and delete 15 seconds after it finishes.",
+    "tags": [
+        "sanction",
+        "moderation",
+        "ban",
+        "kick",
+        "void",
+        "nullvoid",
+        "cleanup",
+        "Dashboard Integrated"
+    ],
+    "requirements": ["git+https://github.com/AAA3A-AAA3A/AAA3A_utils.git"],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 10, 0],
+    "end_user_data_statement": "This cog does not persistently store data or metadata about users."
+}
