@@ -34,7 +34,7 @@ class TimeDeltaConverter(commands.Converter):
 
 
 @app_commands.context_menu(name="Void Sanction")
-async def voidsaction_member_context_menu(interaction: discord.Interaction, member: discord.Member):
+async def voidsanction_member_context_menu(interaction: discord.Interaction, member: discord.Member):
     await interaction.response.defer(ephemeral=True, thinking=True)
     context = await CogsUtils.invoke_command(
         bot=interaction.client,
