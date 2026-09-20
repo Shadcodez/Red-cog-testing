@@ -1,0 +1,8 @@
+Bundled fonts, all SIL Open Font License 1.1:
+
+- Pacifico-Regular.ttf — Pacifico (Vernon Adams)
+- PassionOne-Bold.ttf — Passion One (Fontstage / Angel Rodriguez)
+- Montserrat-Black.ttf / Montserrat-BlackItalic.ttf — Montserrat (Julieta Ulanovsky)
+- GreatVibes-Regular.ttf — Great Vibes (TypeSETit / Robert E. Leuschke)
+
+Full OFL text: https://scripts.sil.org/OFL

@@ -1,0 +1,11 @@
+{
+    "author": ["aikaterna", "Anismash", "local rewrite"],
+    "description": "Finished local rewrite of Anismash/aikaterna Retrosign for Red 3.5. Makes an 80s retro-wave sign from one word or three lines separated by ';'. Five bundled background artworks and four chrome styles. Server admins pin art with [p]retrosignset. Renders on the bot with Pillow — no Photofunia, no API, no outbound requests.",
+    "install_msg": "Retrosign installed. Load with `[p]load retrosign`. `[p]retrosign Electric; Night; Ride`. Admins: `[p]retrosignset preview` then `[p]retrosignset background 2` / `[p]retrosignset style 1`. This is a local rewrite of the Photofunia cog aikaterna removed in 2021.",
+    "short": "Local 80s retro-wave signs with bundled artwork",
+    "tags": ["retro", "80s", "image", "fun", "synthwave"],
+    "type": "COG",
+    "requirements": ["Pillow>=10.0.0", "numpy"],
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog does not persistently store data or metadata about users. Guild settings store only the chosen background id and style id."
+}
