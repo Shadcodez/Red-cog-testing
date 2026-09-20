@@ -121,8 +121,8 @@ class Retrosign(commands.Cog):
     async def retrosignset_background(self, ctx: commands.Context, choice: str):
         """Pin a background (1-5) or use `random`.
 
-        1 Wire triangles · 2 Sun and palms · 3 Sunset chevron
-        4 Crystal prism · 5 Magenta sunburst
+        1 Inverted neon triangle · 2 Crystal pyramid · 3 Rainbow prism
+        4 Sunset palms · 5 Sun and palms
         """
         parsed = _parse_choice(choice, BACKGROUND_IDS)
         if parsed is None:
@@ -138,7 +138,7 @@ class Retrosign(commands.Cog):
     async def retrosignset_style(self, ctx: commands.Context, choice: str):
         """Pin a type style (1-4) or use `random`.
 
-        1 Pink chrome · 2 Ice chrome · 3 Sunset chrome · 4 Violet chrome
+        1 Pink chrome · 2 Ice chrome · 3 Magenta chrome · 4 Steel chrome
         """
         parsed = _parse_choice(choice, STYLE_IDS)
         if parsed is None:

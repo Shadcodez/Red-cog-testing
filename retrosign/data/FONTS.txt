@@ -1,8 +1,10 @@
 Bundled fonts, all SIL Open Font License 1.1:
 
-- Pacifico-Regular.ttf — Pacifico (Vernon Adams)
-- PassionOne-Bold.ttf — Passion One (Fontstage / Angel Rodriguez)
-- Montserrat-Black.ttf / Montserrat-BlackItalic.ttf — Montserrat (Julieta Ulanovsky)
-- GreatVibes-Regular.ttf — Great Vibes (TypeSETit / Robert E. Leuschke)
+Closest public matches to Photofunia Retro Wave (they do not publish their font files):
+
+- Pacifico-Regular.ttf — top script line (very close to the official "Your" / "Electric" script)
+- Anton-Regular.ttf — middle chrome line (closest free match to the official "TEXT" / "NIGHT" grotesque)
+- Oswald-Bold.ttf — bottom line, sheared slightly italic (closest free match to official "HERE" / "RIDE")
+- Also bundled for fallback: Passion One, Montserrat Black/Italic, Bebas Neue, Lobster, Great Vibes
 
 Full OFL text: https://scripts.sil.org/OFL

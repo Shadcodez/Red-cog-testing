@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 DATA = Path(__file__).resolve().parent / "data"
 FONTS = DATA / "fonts"
@@ -23,51 +23,96 @@ BACKGROUND_IDS = (1, 2, 3, 4, 5)
 STYLE_IDS = (1, 2, 3, 4)
 
 BACKGROUND_NAMES = {
-    1: "Wire triangles",
-    2: "Sun and palms",
-    3: "Sunset chevron",
-    4: "Crystal prism",
-    5: "Magenta sunburst",
+    1: "Inverted neon triangle",
+    2: "Crystal pyramid",
+    3: "Rainbow prism",
+    4: "Sunset palms",
+    5: "Sun and palms",
 }
 
 STYLE_NAMES = {
     1: "Pink chrome",
     2: "Ice chrome",
-    3: "Sunset chrome",
-    4: "Violet chrome",
+    3: "Magenta chrome",
+    4: "Steel chrome",
 }
 
+# Palettes reverse-engineered from Photofunia's public style thumbs
+# (eye191, 1xxre9n, 9ddnhx, dlxine) — our own strokes, not their files.
 TEXT_STYLES: Dict[int, dict] = {
-    1: {
-        "outline": (255, 70, 180),
+    1: {  # pink chrome
+        "stroke_a": (255, 64, 168),
+        "stroke_b": (255, 110, 200),
+        "stroke_off_a": (-2, 2),
+        "stroke_off_b": (3, -1),
+        "inner": (36, 8, 48),
         "glow": (255, 40, 160),
-        "chrome": [(0.0, (255, 255, 255)), (0.35, (230, 210, 255)), (0.55, (200, 90, 180)), (1.0, (90, 40, 120))],
-        "bottom_outline": (90, 220, 255),
-        "script_fill": (255, 90, 200),
+        "chrome": [
+            (0.00, (255, 255, 255)),
+            (0.18, (255, 255, 255)),
+            (0.34, (236, 214, 255)),
+            (0.52, (214, 120, 196)),
+            (0.78, (128, 48, 130)),
+            (1.00, (62, 18, 78)),
+        ],
+        "bottom_outline": (80, 220, 255),
+        "script_fill": (255, 78, 196),
         "script_outline": (255, 255, 255),
     },
-    2: {
-        "outline": (70, 220, 255),
-        "glow": (40, 180, 255),
-        "chrome": [(0.0, (255, 255, 255)), (0.38, (180, 230, 255)), (0.62, (80, 140, 220)), (1.0, (30, 50, 120))],
-        "bottom_outline": (255, 90, 210),
-        "script_fill": (120, 230, 255),
+    2: {  # ice chrome
+        "stroke_a": (64, 214, 255),
+        "stroke_b": (190, 240, 255),
+        "stroke_off_a": (-2, 2),
+        "stroke_off_b": (3, -1),
+        "inner": (16, 36, 64),
+        "glow": (50, 180, 255),
+        "chrome": [
+            (0.00, (255, 255, 255)),
+            (0.20, (230, 248, 255)),
+            (0.42, (168, 220, 255)),
+            (0.64, (186, 168, 255)),
+            (0.84, (232, 150, 214)),
+            (1.00, (120, 70, 160)),
+        ],
+        "bottom_outline": (255, 90, 200),
+        "script_fill": (110, 230, 255),
         "script_outline": (255, 255, 255),
     },
-    3: {
-        "outline": (255, 120, 80),
-        "glow": (255, 80, 40),
-        "chrome": [(0.0, (255, 255, 240)), (0.35, (255, 210, 160)), (0.6, (255, 90, 110)), (1.0, (120, 30, 70))],
-        "bottom_outline": (255, 230, 120),
-        "script_fill": (255, 140, 90),
+    3: {  # magenta chrome
+        "stroke_a": (255, 70, 170),
+        "stroke_b": (255, 140, 210),
+        "stroke_off_a": (-2, 2),
+        "stroke_off_b": (3, -1),
+        "inner": (48, 10, 40),
+        "glow": (255, 50, 150),
+        "chrome": [
+            (0.00, (255, 255, 255)),
+            (0.22, (255, 236, 248)),
+            (0.48, (236, 176, 214)),
+            (0.72, (200, 96, 168)),
+            (1.00, (96, 32, 80)),
+        ],
+        "bottom_outline": (80, 220, 255),
+        "script_fill": (255, 86, 186),
         "script_outline": (255, 255, 255),
     },
-    4: {
-        "outline": (180, 90, 255),
-        "glow": (140, 60, 255),
-        "chrome": [(0.0, (255, 255, 255)), (0.32, (220, 200, 255)), (0.58, (140, 80, 220)), (1.0, (40, 20, 90))],
-        "bottom_outline": (80, 255, 200),
-        "script_fill": (210, 120, 255),
+    4: {  # steel chrome — cyan + magenta bevel, silver to black
+        "stroke_a": (64, 220, 255),
+        "stroke_b": (255, 78, 196),
+        "stroke_off_a": (-3, 2),
+        "stroke_off_b": (3, -1),
+        "inner": (18, 16, 28),
+        "glow": (180, 80, 220),
+        "chrome": [
+            (0.00, (255, 255, 255)),
+            (0.16, (255, 255, 255)),
+            (0.30, (214, 214, 224)),
+            (0.50, (140, 140, 154)),
+            (0.72, (58, 58, 70)),
+            (1.00, (12, 12, 18)),
+        ],
+        "bottom_outline": (80, 220, 255),
+        "script_fill": (255, 78, 196),
         "script_outline": (255, 255, 255),
     },
 }
@@ -105,13 +150,19 @@ def _vertical_gradient(
     return Image.fromarray(img, "RGB")
 
 
-def _circle_offsets(radius: int):
-    pts = []
-    for dx in range(-radius, radius + 1):
-        for dy in range(-radius, radius + 1):
-            if dx * dx + dy * dy <= radius * radius and (dx or dy):
-                pts.append((dx, dy))
-    return pts
+def _dilate(mask: Image.Image, radius: int) -> Image.Image:
+    if radius <= 0:
+        return mask
+    size = radius * 2 + 1
+    if size % 2 == 0:
+        size += 1
+    return mask.filter(ImageFilter.MaxFilter(size))
+
+
+def _shift(mask: Image.Image, dx: int, dy: int) -> Image.Image:
+    out = Image.new("L", mask.size, 0)
+    out.paste(mask, (dx, dy))
+    return out
 
 
 def _fit_font(name: str, text: str, max_width: int, start: int, min_size: int = 18) -> ImageFont.FreeTypeFont:
@@ -123,118 +174,137 @@ def _fit_font(name: str, text: str, max_width: int, start: int, min_size: int = 
     return font
 
 
-def _text_mask(text: str, font: ImageFont.FreeTypeFont) -> Image.Image:
+def _text_mask(text: str, font: ImageFont.FreeTypeFont, tracking: int = 0) -> Image.Image:
     dummy = Image.new("L", (4, 4), 0)
     d = ImageDraw.Draw(dummy)
-    bbox = d.textbbox((0, 0), text, font=font)
-    w, h = max(1, bbox[2] - bbox[0] + 8), max(1, bbox[3] - bbox[1] + 8)
-    mask = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(mask).text((4 - bbox[0], 4 - bbox[1]), text, font=font, fill=255)
+    if tracking == 0:
+        bbox = d.textbbox((0, 0), text, font=font)
+        w, h = max(1, bbox[2] - bbox[0] + 8), max(1, bbox[3] - bbox[1] + 8)
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).text((4 - bbox[0], 4 - bbox[1]), text, font=font, fill=255)
+        return mask
+    x = 4
+    glyphs = []
+    max_h = 1
+    for ch in text:
+        bb = d.textbbox((0, 0), ch, font=font)
+        gw, gh = bb[2] - bb[0], bb[3] - bb[1]
+        glyphs.append((ch, bb, gw, gh))
+        max_h = max(max_h, gh + 8)
+        x += max(gw, 1) + tracking
+    mask = Image.new("L", (max(1, x + 8), max_h), 0)
+    md = ImageDraw.Draw(mask)
+    x = 4
+    for ch, bb, gw, gh in glyphs:
+        md.text((x - bb[0], 4 - bb[1]), ch, font=font, fill=255)
+        x += max(gw, 1) + tracking
     return mask
 
 
+def _layer_color(size, color, mask, alpha=255) -> Image.Image:
+    layer = Image.new("RGBA", size, (*color, alpha))
+    out = Image.new("RGBA", size, (0, 0, 0, 0))
+    out.paste(layer, mask=mask)
+    return out
+
+
 def _chrome_text(text: str, font: ImageFont.FreeTypeFont, style: dict) -> Image.Image:
-    mask = _text_mask(text, font)
+    mask = _text_mask(text, font, tracking=-3)
     w, h = mask.size
-    pad = 28
-    canvas = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
-    mpad = Image.new("L", canvas.size, 0)
-    mpad.paste(mask, (pad, pad))
+    pad = 36
+    size = (w + pad * 2, h + pad * 2)
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    core = Image.new("L", size, 0)
+    core.paste(mask, (pad, pad))
 
-    glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    glow.paste(Image.new("RGBA", canvas.size, (*style["glow"], 180)), mask=mpad)
-    canvas = Image.alpha_composite(canvas, glow.filter(ImageFilter.GaussianBlur(12)))
-    canvas = Image.alpha_composite(canvas, glow.filter(ImageFilter.GaussianBlur(18)))
+    glow_m = _dilate(core, 10).filter(ImageFilter.GaussianBlur(14))
+    canvas = Image.alpha_composite(canvas, _layer_color(size, style["glow"], glow_m, 150))
+    glow_m2 = _dilate(core, 4).filter(ImageFilter.GaussianBlur(6))
+    canvas = Image.alpha_composite(canvas, _layer_color(size, style["glow"], glow_m2, 90))
 
-    outline_col = Image.new("RGBA", canvas.size, (*style["outline"], 255))
-    for dx, dy in _circle_offsets(7):
-        shifted = Image.new("L", canvas.size, 0)
-        shifted.paste(mpad, (dx, dy))
-        canvas.paste(outline_col, mask=shifted)
+    outer = _dilate(core, 8)
+    oa_x, oa_y = style["stroke_off_a"]
+    ob_x, ob_y = style["stroke_off_b"]
+    a_mask = _shift(outer, oa_x, oa_y)
+    b_mask = _shift(outer, ob_x, ob_y)
+    canvas.paste(_layer_color(size, style["stroke_a"], a_mask), (0, 0), a_mask)
+    canvas.paste(_layer_color(size, style["stroke_b"], b_mask), (0, 0), b_mask)
 
-    bevel = Image.new("RGBA", canvas.size, (*style["bottom_outline"], 220))
-    for dx, dy in ((-3, 2), (-4, 3), (3, 2), (4, 3)):
-        shifted = Image.new("L", canvas.size, 0)
-        shifted.paste(mpad, (dx, dy))
-        canvas.paste(bevel, mask=shifted)
-
-    inner = Image.new("RGBA", canvas.size, (30, 10, 40, 255))
-    for dx, dy in _circle_offsets(2):
-        shifted = Image.new("L", canvas.size, 0)
-        shifted.paste(mpad, (dx, dy))
-        canvas.paste(inner, mask=shifted)
+    inner = _dilate(core, 3)
+    canvas.paste(_layer_color(size, style["inner"], inner), (0, 0), inner)
 
     grad = _vertical_gradient((w, h), style["chrome"]).convert("RGBA")
-    gpad = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    gpad = Image.new("RGBA", size, (0, 0, 0, 0))
     gpad.paste(grad, (pad, pad))
-    canvas.paste(gpad, mask=mpad)
+    canvas.paste(gpad, mask=core)
 
-    spec = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    spx = spec.load()
-    for y in range(canvas.size[1]):
-        ty = (y - pad) / max(h, 1)
-        if 0.08 < ty < 0.28:
-            a = int(160 * (1 - abs(ty - 0.16) / 0.12))
-            for x in range(canvas.size[0]):
-                spx[x, y] = (255, 255, 255, max(0, a))
+    # hard specular band across the upper third (Photofunia chrome "shine")
+    ys = (np.arange(size[1]) - pad) / max(h, 1)
+    alpha = np.zeros(size[1], dtype=np.float32)
+    band1 = (ys > 0.06) & (ys < 0.22)
+    alpha[band1] = 200.0 * (1.0 - np.abs(ys[band1] - 0.13) / 0.10)
+    band2 = (ys > 0.22) & (ys < 0.30)
+    alpha[band2] = 70.0 * (1.0 - (ys[band2] - 0.22) / 0.08)
+    alpha = np.clip(alpha, 0, 255).astype(np.uint8)
+    spec_arr = np.zeros((size[1], size[0], 4), dtype=np.uint8)
+    spec_arr[..., 0] = 255
+    spec_arr[..., 1] = 255
+    spec_arr[..., 2] = 255
+    spec_arr[..., 3] = alpha[:, None]
+    spec = Image.fromarray(spec_arr, "RGBA")
     canvas = Image.alpha_composite(
-        canvas,
-        Image.composite(spec, Image.new("RGBA", canvas.size, (0, 0, 0, 0)), mpad),
+        canvas, Image.composite(spec, Image.new("RGBA", size, (0, 0, 0, 0)), core)
     )
+
+    # top-edge bevel highlight
+    top_edge = ImageChops.subtract(core, _shift(core, 0, 3))
+    canvas = Image.alpha_composite(canvas, _layer_color(size, (255, 255, 255), top_edge, 140))
     return canvas
 
 
-def _script_text(text: str, font: ImageFont.FreeTypeFont, style: dict, angle: float = -11.0) -> Image.Image:
+def _script_text(text: str, font: ImageFont.FreeTypeFont, style: dict, angle: float = -12.0) -> Image.Image:
     mask = _text_mask(text, font)
     w, h = mask.size
-    pad = 24
-    canvas = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
-    mpad = Image.new("L", canvas.size, 0)
-    mpad.paste(mask, (pad, pad))
+    pad = 28
+    size = (w + pad * 2, h + pad * 2)
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    core = Image.new("L", size, 0)
+    core.paste(mask, (pad, pad))
 
-    glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    glow.paste(Image.new("RGBA", canvas.size, (*style["glow"], 140)), mask=mpad)
-    canvas = Image.alpha_composite(canvas, glow.filter(ImageFilter.GaussianBlur(10)))
+    glow = _dilate(core, 6).filter(ImageFilter.GaussianBlur(8))
+    canvas = Image.alpha_composite(canvas, _layer_color(size, style["script_fill"], glow, 120))
 
-    outline = Image.new("RGBA", canvas.size, (*style["script_outline"], 255))
-    for dx, dy in _circle_offsets(4):
-        shifted = Image.new("L", canvas.size, 0)
-        shifted.paste(mpad, (dx, dy))
-        canvas.paste(outline, mask=shifted)
+    outline = _dilate(core, 5)
+    canvas.paste(_layer_color(size, style["script_outline"], outline), (0, 0), outline)
+    inner = _dilate(core, 2)
+    canvas.paste(_layer_color(size, (255, 220, 240), inner), (0, 0), inner)
+    canvas.paste(_layer_color(size, style["script_fill"], core), (0, 0), core)
 
-    fill = Image.new("RGBA", canvas.size, (*style["script_fill"], 255))
-    canvas.paste(fill, mask=mpad)
-    hi = Image.new("RGBA", canvas.size, (255, 255, 255, 90))
-    canvas = Image.alpha_composite(
-        canvas, Image.composite(hi, Image.new("RGBA", canvas.size, (0, 0, 0, 0)), mpad)
-    )
+    hi = ImageChops.subtract(core, _shift(core, 0, 2))
+    canvas = Image.alpha_composite(canvas, _layer_color(size, (255, 255, 255), hi, 90))
     if angle:
         canvas = canvas.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True)
     return canvas
 
 
 def _bottom_text(text: str, font: ImageFont.FreeTypeFont, style: dict) -> Image.Image:
-    mask = _text_mask(text, font)
+    mask = _text_mask(text, font, tracking=2)
     w, h = mask.size
-    pad = 20
-    canvas = Image.new("RGBA", (w + pad * 2, h + pad * 2), (0, 0, 0, 0))
-    mpad = Image.new("L", canvas.size, 0)
-    mpad.paste(mask, (pad, pad))
+    pad = 22
+    size = (w + pad * 2, h + pad * 2)
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    core = Image.new("L", size, 0)
+    core.paste(mask, (pad, pad))
 
-    glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    glow.paste(Image.new("RGBA", canvas.size, (*style["bottom_outline"], 160)), mask=mpad)
-    canvas = Image.alpha_composite(canvas, glow.filter(ImageFilter.GaussianBlur(8)))
+    glow = _dilate(core, 5).filter(ImageFilter.GaussianBlur(7))
+    canvas = Image.alpha_composite(canvas, _layer_color(size, style["bottom_outline"], glow, 140))
 
-    outline = Image.new("RGBA", canvas.size, (*style["bottom_outline"], 255))
-    for dx, dy in _circle_offsets(4):
-        shifted = Image.new("L", canvas.size, 0)
-        shifted.paste(mpad, (dx, dy))
-        canvas.paste(outline, mask=shifted)
-
-    fill = _vertical_gradient((w, h), [(0.0, (255, 255, 255)), (1.0, (210, 230, 255))]).convert("RGBA")
-    gpad = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    outline = _dilate(core, 4)
+    canvas.paste(_layer_color(size, style["bottom_outline"], outline), (0, 0), outline)
+    fill = _vertical_gradient((w, h), [(0.0, (255, 255, 255)), (1.0, (226, 236, 255))]).convert("RGBA")
+    gpad = Image.new("RGBA", size, (0, 0, 0, 0))
     gpad.paste(fill, (pad, pad))
-    canvas.paste(gpad, mask=mpad)
+    canvas.paste(gpad, mask=core)
     return canvas
 
 
@@ -265,14 +335,21 @@ def render_retrosign(
 
     chrome = script = bottom = None
     if text1:
-        f1 = _fit_font("Pacifico-Regular.ttf", text1, int(W * 0.72), 110, 36)
-        script = _script_text(text1, f1, style, -11)
+        f1 = _fit_font("Pacifico-Regular.ttf", text1, int(W * 0.72), 118, 36)
+        script = _script_text(text1, f1, style, -12)
     if text2:
-        f2 = _fit_font("PassionOne-Bold.ttf", text2.upper(), int(W * 0.90), 196, 48)
+        f2 = _fit_font("Anton-Regular.ttf", text2.upper(), int(W * 0.92), 210, 48)
         chrome = _chrome_text(text2.upper(), f2, style)
     if text3:
-        f3 = _fit_font("Montserrat-BlackItalic.ttf", text3.upper(), int(W * 0.76), 72, 28)
+        f3 = _fit_font("Oswald-Bold.ttf", text3.upper(), int(W * 0.78), 82, 28)
         bottom = _bottom_text(text3.upper(), f3, style)
+        # Official bottom line is a slight italic condensed grotesque
+        bottom = bottom.transform(
+            bottom.size,
+            Image.Transform.AFFINE,
+            (1, -0.18, 20, 0, 1, 0),
+            resample=Image.Resampling.BICUBIC,
+        )
 
     cy = int(H * 0.38)
     if chrome:
