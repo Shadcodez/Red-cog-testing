@@ -10,10 +10,11 @@ import discord
 from redbot.core import Config, checks, commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, escape, humanize_list, pagify
+from redbot.core.utils.views import SimpleMenu
 
 log = logging.getLogger("red.usershammer.usershammer")
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # Internal action keys. These are never registered as top-level command names
 # so they cannot collide with Red's real Mod / Mutes commands.
@@ -153,15 +154,9 @@ DEFAULT_DISCLAIMER = (
 
 
 class UsersHammer(commands.Cog):
-    """Playful mock-moderation for regular members.
+    """Playful mock-moderation. Nobody is actually punished.
 
-    Members can joke-ban, joke-kick, joke-mute, or joke-timeout someone.
-    The bot replies with typical staff lines. Nobody is actually punished.
-
-    Default command words are **banish**, **remove**, **silence**, and
-    **chatmute** so this cog does not replace Red's real ban, kick, mute,
-    or timeout commands. Staff can add extra responses, a fake modlog
-    channel, and a 1-in-5 backfire chance.
+    Open the tabbed help menu with `[p]uh` or `[p]uh cmds`.
     """
 
     def __init__(self, bot: Red) -> None:
@@ -418,9 +413,12 @@ class UsersHammer(commands.Cog):
             bucket[ctx.author.id] = now + cooldown
 
         reason_text = (reason or "").strip() or DEFAULT_REASON
-        async with self.config.guild(ctx.guild).case_count.get_lock():
-            case = await self.config.guild(ctx.guild).case_count()
-            case += 1
+        try:
+            async with self.config.guild(ctx.guild).case_count.get_lock():
+                case = int(await self.config.guild(ctx.guild).case_count() or 0) + 1
+                await self.config.guild(ctx.guild).case_count.set(case)
+        except (AttributeError, TypeError, ValueError):
+            case = int(conf.get("case_count") or 0) + 1
             await self.config.guild(ctx.guild).case_count.set(case)
 
         labels = conf.get("labels") or {}
@@ -454,57 +452,83 @@ class UsersHammer(commands.Cog):
             case=case,
             guild=ctx.guild,
             undo=undo,
-        )
+        )[:2048]
         if backfired:
             body = (
                 f"The hammer slipped. {ctx.author.mention} meant to hit "
                 f"{intended.mention}, but it came back on them.\n\n{body}"
             )
+        body = body[:4000]
+        reason_field = escape(reason_text, mass_mentions=True)[:1000] or DEFAULT_REASON
 
-        if conf.get("embeds", True):
-            color = await ctx.embed_colour()
-            title = f"{label} — case #{case}"
-            if backfired:
-                title = f"{title} (backfire)"
-            embed = discord.Embed(title=title, description=body, color=color)
-            embed.add_field(name="Target", value=f"{target.mention}\n`{target.id}`")
-            embed.add_field(name="Issued by", value=ctx.author.mention)
-            embed.add_field(
-                name="Reason",
-                value=escape(reason_text, mass_mentions=True),
-                inline=False,
+        me = ctx.guild.me
+        channel_perms = ctx.channel.permissions_for(me) if me else None
+        can_embed = bool(
+            conf.get("embeds", True)
+            and channel_perms
+            and channel_perms.embed_links
+            and channel_perms.send_messages
+        )
+
+        sent = False
+        if can_embed:
+            try:
+                try:
+                    color = await ctx.embed_colour()
+                except TypeError:
+                    color = discord.Color.red()
+                title = f"{label} — case #{case}"
+                if backfired:
+                    title = f"{title} (backfire)"
+                embed = discord.Embed(title=title[:256], description=body or "\u200b", color=color)
+                embed.add_field(name="Target", value=f"{target.mention}\n`{target.id}`"[:1024])
+                embed.add_field(name="Issued by", value=(ctx.author.mention or str(ctx.author))[:1024])
+                embed.add_field(name="Reason", value=reason_field, inline=False)
+                if conf.get("disclaimer", True) and disclaimer.strip():
+                    embed.set_footer(text=disclaimer[:2048])
+                await ctx.send(embed=embed, allowed_mentions=mentions)
+                sent = True
+            except (TypeError, ValueError, discord.Forbidden, discord.HTTPException):
+                log.debug("Embed send failed for %s; falling back to text", action, exc_info=True)
+
+        if not sent:
+            text = body or "Done."
+            if conf.get("disclaimer", True) and disclaimer.strip():
+                text = f"{text}\n{disclaimer}"
+            try:
+                await ctx.send(text[:2000], allowed_mentions=mentions)
+            except discord.HTTPException:
+                await ctx.send("Could not send that joke action in this channel.")
+
+        try:
+            await self._post_fake_modlog(
+                ctx,
+                conf=conf,
+                action=action,
+                label=label,
+                target=target,
+                intended=intended,
+                reason=reason_field,
+                case=case,
+                undo=undo,
+                backfired=backfired,
             )
-            if conf.get("disclaimer", True):
-                embed.set_footer(text=disclaimer)
-            await ctx.send(embed=embed, allowed_mentions=mentions)
-        else:
-            text = body
-            if conf.get("disclaimer", True):
-                text = f"{body}\n-# {disclaimer}"
-            await ctx.send(text, allowed_mentions=mentions)
+        except (discord.HTTPException, discord.Forbidden, AttributeError):
+            log.exception("Fake modlog failed")
 
-        await self._post_fake_modlog(
-            ctx,
-            conf=conf,
-            action=action,
-            label=label,
-            target=target,
-            intended=intended,
-            reason=reason_text,
-            case=case,
-            undo=undo,
-            backfired=backfired,
-        )
-        await self._dm_user(
-            target,
-            conf=conf,
-            action=action,
-            label=label,
-            body=body,
-            disclaimer=disclaimer,
-            case=case,
-            show_disclaimer=bool(conf.get("disclaimer", True)),
-        )
+        try:
+            await self._dm_user(
+                target,
+                conf=conf,
+                action=action,
+                label=label,
+                body=body,
+                disclaimer=disclaimer,
+                case=case,
+                show_disclaimer=bool(conf.get("disclaimer", True)),
+            )
+        except (discord.HTTPException, discord.Forbidden):
+            log.debug("DM failed for %s", target.id)
 
     async def _dm_user(
         self,
@@ -530,41 +554,216 @@ class UsersHammer(commands.Cog):
         except (discord.Forbidden, discord.HTTPException):
             log.debug("Could not DM %s for UsersHammer action %s", target.id, action)
 
-    async def _command_guide(self, ctx: commands.Context, *, staff: bool) -> str:
+    async def _send_pages(
+        self,
+        ctx: commands.Context,
+        pages: List,
+        *,
+        use_select: bool = True,
+    ) -> None:
+        if not pages:
+            return
+        if len(pages) == 1:
+            page = pages[0]
+            if isinstance(page, discord.Embed):
+                await ctx.send(embed=page)
+            elif isinstance(page, dict):
+                await ctx.send(**page)
+            else:
+                await ctx.send(str(page))
+            return
+        await SimpleMenu(
+            pages,
+            timeout=180.0,
+            use_select_menu=use_select,
+            disable_after_timeout=True,
+        ).start(ctx)
+
+    async def _pagify_embed_pages(
+        self,
+        ctx: commands.Context,
+        *,
+        title: str,
+        body: str,
+        footer: Optional[str] = None,
+        page_length: int = 900,
+    ) -> List[discord.Embed]:
+        chunks = list(pagify(body, delims=["\n"], page_length=page_length, shorten_by=0))
+        if not chunks:
+            chunks = ["Nothing to show."]
+        color = await ctx.embed_colour()
+        pages = []
+        total = len(chunks)
+        for i, chunk in enumerate(chunks, start=1):
+            embed = discord.Embed(title=title, description=chunk, color=color)
+            extra = f"Page {i}/{total}"
+            embed.set_footer(text=f"{footer} • {extra}" if footer else extra)
+            pages.append(embed)
+        return pages
+
+    async def _help_embeds(self, ctx: commands.Context, *, staff: bool) -> List[discord.Embed]:
         names = await self._command_names()
         undos = await self._undo_names()
         p = ctx.clean_prefix
-        lines = [
-            "UsersHammer is roleplay only.",
-            self._disclaimer_text(await self._guild_conf(ctx.guild), "ban")
-            if ctx.guild
-            else DEFAULT_DISCLAIMER,
-            "",
-            "**Member commands**",
-            f"`{p}{names['ban']} @user [reason]` — joke ban",
-            f"`{p}{names['kick']} @user [reason]` — joke kick",
-            f"`{p}{names['mute']} @user [reason]` — joke mute",
-            f"`{p}{names['timeout']} @user [reason]` — joke timeout",
-            f"`{p}{undos['ban']}` / `{p}{undos['kick']}` / `{p}{undos['mute']}` / `{p}{undos['timeout']}` — lift the joke",
-            f"`{p}uh actions` — show the words this server uses",
-        ]
-        if staff:
-            lines.extend(
+        color = await ctx.embed_colour()
+        note = DEFAULT_DISCLAIMER
+        if ctx.guild:
+            note = self._disclaimer_text(await self._guild_conf(ctx.guild), "ban")
+
+        members = discord.Embed(
+            title="UsersHammer — Members",
+            description=(
+                "Roleplay only. Nobody is banned, kicked, muted, or timed out.\n"
+                f"{note}"
+            ),
+            color=color,
+        )
+        members.add_field(
+            name="Joke actions",
+            value="\n".join(
                 [
-                    "",
-                    "**Staff commands**",
-                    f"`{p}uhset settings` — current options",
-                    f"`{p}uhset text <ban|kick|mute|timeout> <message>` — set that command's line",
-                    f"`{p}uhset response add/list/remove <action>` — manage extra lines",
-                    f"`{p}uhset disclaimer text [action] <text>` — footer text",
-                    f"`{p}uhset dm` — DM the targeted user",
-                    f"`{p}uhset modlog channel #channel` — fake modlog",
-                    f"`{p}uhset backfire` — 1 in 5 chance it hits the author",
-                    f"`{p}uhset alias add <action> <word>` — extra invoke word",
-                    f"`{p}help uhset` — full staff list",
+                    f"`{p}{names['ban']} @user [reason]` — ban",
+                    f"`{p}{names['kick']} @user [reason]` — kick",
+                    f"`{p}{names['mute']} @user [reason]` — mute",
+                    f"`{p}{names['timeout']} @user [reason]` — timeout",
                 ]
-            )
-        return "\n".join(lines)
+            ),
+            inline=False,
+        )
+        members.add_field(
+            name="Lift the joke",
+            value=(
+                f"`{p}{undos['ban']}` `{p}{undos['kick']}` "
+                f"`{p}{undos['mute']}` `{p}{undos['timeout']}`"
+            ),
+            inline=False,
+        )
+        members.add_field(
+            name="Also",
+            value=(
+                f"`{p}uh ban|kick|mute|timeout @user`\n"
+                f"`{p}uh actions` — words this server uses\n"
+                f"`{p}uh cmds` — this menu"
+            ),
+            inline=False,
+        )
+        members.set_footer(text="Use the select menu or buttons to switch tabs.")
+        pages = [members]
+
+        if not staff:
+            return pages
+
+        staff_embed = discord.Embed(
+            title="UsersHammer — Staff",
+            description="Mod or Manage Server. These never apply a real punishment.",
+            color=color,
+        )
+        staff_embed.add_field(
+            name="Core",
+            value="\n".join(
+                [
+                    f"`{p}uhset settings`",
+                    f"`{p}uhset toggle`",
+                    f"`{p}uhset random`",
+                    f"`{p}uhset defaults`",
+                    f"`{p}uhset embeds`",
+                    f"`{p}uhset cooldown <seconds>`",
+                    f"`{p}uhset hierarchy`",
+                    f"`{p}uhset selftarget`",
+                    f"`{p}uhset bottarget`",
+                    f"`{p}uhset backfire`",
+                    f"`{p}uhset dm`",
+                ]
+            ),
+            inline=False,
+        )
+        staff_embed.set_footer(text="Tab 2 • Staff")
+        pages.append(staff_embed)
+
+        text_embed = discord.Embed(
+            title="UsersHammer — Text",
+            description="Edit joke lines and the footer per command.",
+            color=color,
+        )
+        text_embed.add_field(
+            name="Lines",
+            value="\n".join(
+                [
+                    f"`{p}uhset text <ban|kick|mute|timeout> <message>`",
+                    f"`{p}uhset response add <action> <text>`",
+                    f"`{p}uhset response list <action>`",
+                    f"`{p}uhset response remove <action> <index>`",
+                    f"`{p}uhset response clear <action>`",
+                    f"`{p}uhset label <action> <label>`",
+                ]
+            ),
+            inline=False,
+        )
+        text_embed.add_field(
+            name="Disclaimer",
+            value="\n".join(
+                [
+                    f"`{p}uhset disclaimer`",
+                    f"`{p}uhset disclaimer toggle`",
+                    f"`{p}uhset disclaimer text <text>`",
+                    f"`{p}uhset disclaimer text <action> <text>`",
+                    f"`{p}uhset disclaimer reset`",
+                ]
+            ),
+            inline=False,
+        )
+        text_embed.add_field(
+            name="Placeholders",
+            value=(
+                "`{target}` `{target.mention}` `{target.id}` `{target.name}`\n"
+                "`{moderator}` `{moderator.mention}` `{reason}`\n"
+                "`{action}` `{action_past}` `{server}` `{case}`"
+            ),
+            inline=False,
+        )
+        text_embed.set_footer(text="Tab 3 • Text")
+        pages.append(text_embed)
+
+        extra = discord.Embed(
+            title="UsersHammer — Modlog & aliases",
+            color=color,
+        )
+        extra.add_field(
+            name="Fake modlog",
+            value="\n".join(
+                [
+                    f"`{p}uhset modlog`",
+                    f"`{p}uhset modlog channel #channel`",
+                    f"`{p}uhset modlog toggle`",
+                ]
+            ),
+            inline=False,
+        )
+        extra.add_field(
+            name="Aliases",
+            value="\n".join(
+                [
+                    f"`{p}uhset alias add <action> <word>`",
+                    f"`{p}uhset alias list`",
+                    f"`{p}uhset alias remove <action> <word>`",
+                    f"`{p}uhset alias undoadd <action> <word>`",
+                ]
+            ),
+            inline=False,
+        )
+        extra.set_footer(text="Tab 4 • Extra")
+        pages.append(extra)
+        return pages
+
+    async def _show_help_menu(self, ctx: commands.Context) -> None:
+        staff = await self._is_staff(ctx)
+        pages = await self._help_embeds(ctx, staff=staff)
+        await self._send_pages(ctx, pages)
+
+    async def _command_guide(self, ctx: commands.Context, *, staff: bool) -> str:
+        # Kept for compatibility; the menu is the public help UI.
+        pages = await self._help_embeds(ctx, staff=staff)
+        return "\n".join(p.title or "" for p in pages)
 
     async def _post_fake_modlog(
         self,
@@ -588,7 +787,10 @@ class UsersHammer(commands.Cog):
         channel = ctx.guild.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             return
-        perms = channel.permissions_for(ctx.guild.me)
+        me = ctx.guild.me
+        if me is None:
+            return
+        perms = channel.permissions_for(me)
         if not perms.send_messages:
             return
 
@@ -612,7 +814,7 @@ class UsersHammer(commands.Cog):
             value=f"{ctx.author} (`{ctx.author.id}`)",
             inline=False,
         )
-        embed.add_field(name="Reason", value=escape(reason, mass_mentions=True), inline=False)
+        embed.add_field(name="Reason", value=(reason or DEFAULT_REASON)[:1000], inline=False)
         if backfired:
             embed.add_field(
                 name="Note",
@@ -774,14 +976,12 @@ class UsersHammer(commands.Cog):
         Members see user commands. Staff also see setup commands.
         """
         if ctx.invoked_subcommand is None:
-            staff = await self._is_staff(ctx)
-            await ctx.send(await self._command_guide(ctx, staff=staff))
+            await self._show_help_menu(ctx)
 
-    @usershammer.command(name="cmds", aliases=["commands"])
+    @usershammer.command(name="cmds", aliases=["commands", "help"])
     async def uh_cmds(self, ctx: commands.Context):
-        """List UsersHammer commands you can use."""
-        staff = await self._is_staff(ctx)
-        await ctx.send(await self._command_guide(ctx, staff=staff))
+        """Show the tabbed UsersHammer help menu."""
+        await self._show_help_menu(ctx)
 
     @usershammer.command(name="ban")
     async def uh_ban(
@@ -863,7 +1063,11 @@ class UsersHammer(commands.Cog):
                 f"  undo: `{ctx.clean_prefix}{undos[action]}` "
                 f"or `{ctx.clean_prefix}uh un{action}`{extra_u_txt}"
             )
-        await ctx.send("\n".join(lines))
+        body = "\n".join(lines)
+        pages = await self._pagify_embed_pages(
+            ctx, title="UsersHammer — Actions", body=body, footer="Paginated"
+        )
+        await self._send_pages(ctx, pages)
 
     # ------------------------------------------------------------------
     # Staff settings
@@ -875,7 +1079,7 @@ class UsersHammer(commands.Cog):
     async def uhset(self, ctx: commands.Context):
         """Configure UsersHammer for this server."""
         if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+            await self._show_help_menu(ctx)
 
     @uhset.command(name="settings")
     async def uhset_settings(self, ctx: commands.Context):
@@ -903,7 +1107,14 @@ class UsersHammer(commands.Cog):
                 f"Global command words: {', '.join(f'{k}→{v}' for k, v in names.items())}",
             ]
         )
-        await ctx.send(box(text, lang="ini"))
+        pages = await self._pagify_embed_pages(
+            ctx,
+            title="UsersHammer — Settings",
+            body=box(text, lang="ini"),
+            footer="Paginated settings",
+            page_length=1000,
+        )
+        await self._send_pages(ctx, pages)
 
     @uhset.command(name="toggle")
     async def uhset_toggle(self, ctx: commands.Context, enabled: Optional[bool] = None):
@@ -954,7 +1165,13 @@ class UsersHammer(commands.Cog):
                 custom = (conf.get("disclaimers") or {}).get(action) or ""
                 if custom:
                     lines.append(f"{action}: {custom}")
-            await ctx.send("\n".join(lines))
+            pages = await self._pagify_embed_pages(
+                ctx,
+                title="UsersHammer — Disclaimer",
+                body="\n".join(lines),
+                footer="Disclaimer",
+            )
+            await self._send_pages(ctx, pages)
 
     @uhset_disclaimer.command(name="toggle")
     async def uhset_disclaimer_toggle(
@@ -1198,7 +1415,7 @@ class UsersHammer(commands.Cog):
     async def uhset_response(self, ctx: commands.Context):
         """Add or remove joke moderator lines for an action."""
         if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+            await self._show_help_menu(ctx)
 
     @uhset_response.command(name="add")
     async def uhset_response_add(
@@ -1257,8 +1474,13 @@ class UsersHammer(commands.Cog):
             )
             return
         body = "\n".join(f"{i}. {line}" for i, line in enumerate(pool, start=1))
-        for page in pagify(body, delims=["\n"], page_length=1800):
-            await ctx.send(box(page))
+        pages = await self._pagify_embed_pages(
+            ctx,
+            title=f"UsersHammer — {action} responses",
+            body=body,
+            footer="Use the index with response remove",
+        )
+        await self._send_pages(ctx, pages)
 
     @uhset_response.command(name="clear")
     async def uhset_response_clear(self, ctx: commands.Context, action: str):
@@ -1297,7 +1519,7 @@ class UsersHammer(commands.Cog):
         moderation command names such as ban, kick, mute, or timeout.
         """
         if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+            await self._show_help_menu(ctx)
 
     @uhset_alias.command(name="add")
     async def uhset_alias_add(self, ctx: commands.Context, action: str, name: str):
@@ -1364,7 +1586,13 @@ class UsersHammer(commands.Cog):
                 lines.append(
                     f"  undo extras: {humanize_list([f'`{a}`' for a in extra_u])}"
                 )
-        await ctx.send("\n".join(lines))
+        pages = await self._pagify_embed_pages(
+            ctx,
+            title="UsersHammer — Aliases",
+            body="\n".join(lines),
+            footer="Server aliases",
+        )
+        await self._send_pages(ctx, pages)
 
     @uhset_alias.command(name="undoadd")
     async def uhset_alias_undoadd(self, ctx: commands.Context, action: str, name: str):
