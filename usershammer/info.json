@@ -1,12 +1,12 @@
 {
     "author": ["UsersHammer"],
-    "description": "Playful mock-moderation for regular members. Users can banish, remove, silence, or chatmute others with typical moderator-style lines. Nothing is actually banned, kicked, muted, or timed out. Staff can add responses, post a fake modlog, and toggle a 1-in-5 backfire chance. Command names default to banish/remove/silence/chatmute so they do not clash with Red's real ban, kick, mute, or timeout commands.",
+    "description": "Playful mock-moderation for regular members. Users can banish, remove, silence, or chatmute others with typical moderator-style lines. Nothing is actually banned, kicked, muted, or timed out. Staff can edit per-command lines, change the disclaimer, DM targets, post a fake modlog, and toggle a 1-in-5 backfire chance. Command names default to banish/remove/silence/chatmute so they do not clash with Red's real ban, kick, mute, or timeout commands.",
     "short": "Playful fake ban/kick/mute/timeout responses for members.",
     "tags": ["fun", "moderation", "joke", "roleplay"],
     "min_bot_version": "3.5.0",
     "min_python_version": [3, 8, 1],
     "hidden": false,
     "disabled": false,
-    "end_user_data_statement": "This cog does not store end user data. Guild staff may save custom joke response templates, command aliases, and a fake modlog channel ID for the server. Those settings are not tied to a user ID.",
-    "install_msg": "Thanks for installing UsersHammer.\n\nThis cog is **roleplay only**. It never bans, kicks, mutes, or times anyone out.\n\nDefault member commands (safe names that do not replace core Mod/Mutes):\n`[p]banish`    mock ban\n`[p]remove`    mock kick\n`[p]silence`   mock mute\n`[p]chatmute`  mock timeout\n\nStaff setup: `[p]help uhset`\nFake modlog: `[p]uhset modlog channel #channel`\nBackfire: `[p]uhset backfire`\nOverview: `[p]help UsersHammer`"
+    "end_user_data_statement": "This cog does not store end user data. Guild staff may save custom joke response templates, command aliases, disclaimer text, and a fake modlog channel ID for the server. Those settings are not tied to a user ID. If DMs are enabled, the bot sends a one-off joke notice to the targeted user and does not store that message.",
+    "install_msg": "Thanks for installing UsersHammer.\n\nThis cog is **roleplay only**. It never bans, kicks, mutes, or times anyone out.\nDisclaimer: This does not actually ban, kick, mute, or timeout users.\n\nDefault member commands:\n`[p]banish`  `[p]remove`  `[p]silence`  `[p]chatmute`\nCommand list: `[p]uh`  (staff see setup commands too)\n\nStaff: `[p]uhset text ban <line>`  `[p]uhset dm`  `[p]uhset disclaimer text <text>`"
 }

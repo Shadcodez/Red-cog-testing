@@ -45,6 +45,8 @@ If the cog was already loaded, use `[p]reload usershammer`.
 | `[p]chatmute @user [reason]` | Timeout |
 | `[p]unbanish` / `[p]unremove` / `[p]unsilence` / `[p]unchatmute` | Lift the joke |
 
+`[p]uh` lists the commands you can use. Members see joke commands. Staff also see setup commands.
+
 Same actions also live under a group that *can* use the real words, because they are subcommands and do not replace core commands:
 
 ```
@@ -53,6 +55,7 @@ Same actions also live under a group that *can* use the real words, because they
 [p]uh mute @user
 [p]uh timeout @user
 [p]uh actions
+[p]uh cmds
 ```
 
 ## Staff commands
@@ -64,7 +67,12 @@ Mods or anyone with Manage Server:
 [p]uhset toggle
 [p]uhset random
 [p]uhset defaults
+[p]uhset text ban {target} caught the ban hammer. They are no longer welcome in {server}. Reason: {reason}
+[p]uhset dm
 [p]uhset disclaimer
+[p]uhset disclaimer toggle
+[p]uhset disclaimer text This does not actually ban, kick, mute, or timeout users.
+[p]uhset disclaimer text ban This banish is fake.
 [p]uhset embeds
 [p]uhset hierarchy
 [p]uhset selftarget
@@ -93,6 +101,20 @@ You cannot register `ban`, `kick`, `mute`, `timeout`, or other reserved staff co
 ### Backfire
 
 `[p]uhset backfire` turns on a **1 in 5** chance that the joke hits the member who typed the command instead of the named target.
+
+### DMs
+
+`[p]uhset dm` toggles whether the targeted user is DMed the joke action. Closed DMs are ignored.
+
+### Per-command text
+
+```
+[p]uhset text ban {target} caught the ban hammer. They are no longer welcome in {server}. Reason: {reason}
+```
+
+Set a custom line per action (`ban`, `kick`, `mute`, `timeout`). Use `[p]uhset defaults` to stop mixing in the built-in pool. `[p]uhset disclaimer text [action] <text>` changes the footer globally or per command. Default footer:
+
+`This does not actually ban, kick, mute, or timeout users.`
 
 ## Response placeholders
 

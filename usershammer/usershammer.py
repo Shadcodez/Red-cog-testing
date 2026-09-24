@@ -13,7 +13,7 @@ from redbot.core.utils.chat_formatting import box, escape, humanize_list, pagify
 
 log = logging.getLogger("red.usershammer.usershammer")
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # Internal action keys. These are never registered as top-level command names
 # so they cannot collide with Red's real Mod / Mutes commands.
@@ -147,6 +147,9 @@ DEFAULT_UNDO_RESPONSES = {
 }
 
 DEFAULT_REASON = "No reason provided"
+DEFAULT_DISCLAIMER = (
+    "This does not actually ban, kick, mute, or timeout users."
+)
 
 
 class UsersHammer(commands.Cog):
@@ -174,6 +177,9 @@ class UsersHammer(commands.Cog):
             enabled=True,
             random=True,
             disclaimer=True,
+            disclaimer_text=DEFAULT_DISCLAIMER,
+            disclaimers={action: "" for action in ACTIONS},
+            dm_target=True,
             embeds=True,
             respect_hierarchy=False,
             allow_self=True,
@@ -229,6 +235,24 @@ class UsersHammer(commands.Cog):
         if name in {"usershammer", "uh", "uhset", "usershammerset", "uhammer"}:
             return f"`{name}` is already used by this cog."
         return None
+
+    async def _is_staff(self, ctx: commands.Context) -> bool:
+        if await self.bot.is_owner(ctx.author):
+            return True
+        if ctx.guild is None:
+            return False
+        if await self.bot.is_mod(ctx.author):
+            return True
+        if isinstance(ctx.author, discord.Member):
+            return ctx.author.guild_permissions.manage_guild
+        return False
+
+    def _disclaimer_text(self, conf: dict, action: str) -> str:
+        per_action = (conf.get("disclaimers") or {}).get(action) or ""
+        if per_action.strip():
+            return per_action.strip()
+        shared = (conf.get("disclaimer_text") or "").strip()
+        return shared or DEFAULT_DISCLAIMER
 
     async def _guild_conf(self, guild: discord.Guild) -> dict:
         return await self.config.guild(guild).all()
@@ -420,8 +444,16 @@ class UsersHammer(commands.Cog):
         mentions = discord.AllowedMentions(
             everyone=False, roles=False, users=[target, ctx.author]
         )
-        disclaimer = (
-            "This is a UsersHammer joke. No ban, kick, mute, or timeout was applied."
+        disclaimer = self._format_response(
+            self._disclaimer_text(conf, action),
+            action=action,
+            label=label,
+            target=target,
+            moderator=ctx.author,
+            reason=reason_text,
+            case=case,
+            guild=ctx.guild,
+            undo=undo,
         )
         if backfired:
             body = (
@@ -463,6 +495,76 @@ class UsersHammer(commands.Cog):
             undo=undo,
             backfired=backfired,
         )
+        await self._dm_user(
+            target,
+            conf=conf,
+            action=action,
+            label=label,
+            body=body,
+            disclaimer=disclaimer,
+            case=case,
+            show_disclaimer=bool(conf.get("disclaimer", True)),
+        )
+
+    async def _dm_user(
+        self,
+        target: discord.Member,
+        *,
+        conf: dict,
+        action: str,
+        label: str,
+        body: str,
+        disclaimer: str,
+        case: int,
+        show_disclaimer: bool,
+    ) -> None:
+        if not conf.get("dm_target", True):
+            return
+        if target.bot:
+            return
+        text = f"**UsersHammer {label} — case #{case}**\n{body}"
+        if show_disclaimer:
+            text = f"{text}\n\n{disclaimer}"
+        try:
+            await target.send(text[:1900])
+        except (discord.Forbidden, discord.HTTPException):
+            log.debug("Could not DM %s for UsersHammer action %s", target.id, action)
+
+    async def _command_guide(self, ctx: commands.Context, *, staff: bool) -> str:
+        names = await self._command_names()
+        undos = await self._undo_names()
+        p = ctx.clean_prefix
+        lines = [
+            "UsersHammer is roleplay only.",
+            self._disclaimer_text(await self._guild_conf(ctx.guild), "ban")
+            if ctx.guild
+            else DEFAULT_DISCLAIMER,
+            "",
+            "**Member commands**",
+            f"`{p}{names['ban']} @user [reason]` — joke ban",
+            f"`{p}{names['kick']} @user [reason]` — joke kick",
+            f"`{p}{names['mute']} @user [reason]` — joke mute",
+            f"`{p}{names['timeout']} @user [reason]` — joke timeout",
+            f"`{p}{undos['ban']}` / `{p}{undos['kick']}` / `{p}{undos['mute']}` / `{p}{undos['timeout']}` — lift the joke",
+            f"`{p}uh actions` — show the words this server uses",
+        ]
+        if staff:
+            lines.extend(
+                [
+                    "",
+                    "**Staff commands**",
+                    f"`{p}uhset settings` — current options",
+                    f"`{p}uhset text <ban|kick|mute|timeout> <message>` — set that command's line",
+                    f"`{p}uhset response add/list/remove <action>` — manage extra lines",
+                    f"`{p}uhset disclaimer text [action] <text>` — footer text",
+                    f"`{p}uhset dm` — DM the targeted user",
+                    f"`{p}uhset modlog channel #channel` — fake modlog",
+                    f"`{p}uhset backfire` — 1 in 5 chance it hits the author",
+                    f"`{p}uhset alias add <action> <word>` — extra invoke word",
+                    f"`{p}help uhset` — full staff list",
+                ]
+            )
+        return "\n".join(lines)
 
     async def _post_fake_modlog(
         self,
@@ -667,9 +769,19 @@ class UsersHammer(commands.Cog):
     @commands.group(name="usershammer", aliases=["uh", "uhammer"])
     @commands.guild_only()
     async def usershammer(self, ctx: commands.Context):
-        """Playful mock-moderation. These commands never punish anyone."""
+        """Playful mock-moderation. These commands never punish anyone.
+
+        Members see user commands. Staff also see setup commands.
+        """
         if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+            staff = await self._is_staff(ctx)
+            await ctx.send(await self._command_guide(ctx, staff=staff))
+
+    @usershammer.command(name="cmds", aliases=["commands"])
+    async def uh_cmds(self, ctx: commands.Context):
+        """List UsersHammer commands you can use."""
+        staff = await self._is_staff(ctx)
+        await ctx.send(await self._command_guide(ctx, staff=staff))
 
     @usershammer.command(name="ban")
     async def uh_ban(
@@ -776,6 +888,8 @@ class UsersHammer(commands.Cog):
                 f"Random responses: {conf['random']}",
                 f"Include built-in responses: {conf['include_defaults']}",
                 f"Disclaimer footer: {conf['disclaimer']}",
+                f"Disclaimer text: {conf.get('disclaimer_text') or DEFAULT_DISCLAIMER}",
+                f"DM target: {conf.get('dm_target', True)}",
                 f"Embeds: {conf['embeds']}",
                 f"Respect hierarchy: {conf['respect_hierarchy']}",
                 f"Allow self targets: {conf['allow_self']}",
@@ -827,13 +941,119 @@ class UsersHammer(commands.Cog):
             else "Only staff-added lines will be used (built-ins remain as fallback if a pool is empty)."
         )
 
-    @uhset.command(name="disclaimer")
-    async def uhset_disclaimer(self, ctx: commands.Context, enabled: Optional[bool] = None):
-        """Toggle the 'this is not a real punishment' footer."""
+    @uhset.group(name="disclaimer")
+    async def uhset_disclaimer(self, ctx: commands.Context):
+        """Toggle or edit the footer shown on joke actions."""
+        if ctx.invoked_subcommand is None:
+            conf = await self._guild_conf(ctx.guild)
+            lines = [
+                f"Footer enabled: {conf.get('disclaimer', True)}",
+                f"Default text: {self._disclaimer_text(conf, 'ban') if not (conf.get('disclaimers') or {}).get('ban') else conf.get('disclaimer_text') or DEFAULT_DISCLAIMER}",
+            ]
+            for action in ACTIONS:
+                custom = (conf.get("disclaimers") or {}).get(action) or ""
+                if custom:
+                    lines.append(f"{action}: {custom}")
+            await ctx.send("\n".join(lines))
+
+    @uhset_disclaimer.command(name="toggle")
+    async def uhset_disclaimer_toggle(
+        self, ctx: commands.Context, enabled: Optional[bool] = None
+    ):
+        """Show or hide the disclaimer footer."""
         if enabled is None:
             enabled = not await self.config.guild(ctx.guild).disclaimer()
         await self.config.guild(ctx.guild).disclaimer.set(enabled)
         await ctx.send(f"Disclaimer footer is now {'on' if enabled else 'off'}.")
+
+    @uhset_disclaimer.command(name="text")
+    async def uhset_disclaimer_text(
+        self, ctx: commands.Context, action: Optional[str] = None, *, text: str = ""
+    ):
+        """Set disclaimer text globally or for one command.
+
+        `[p]uhset disclaimer text This does not actually ban, kick, mute, or timeout users.`
+        `[p]uhset disclaimer text ban This banish is fake.`
+        """
+        first = self._clean_name(action or "")
+        if first in ACTIONS:
+            body = text.strip()
+            if not body:
+                async with self.config.guild(ctx.guild).disclaimers() as items:
+                    items[first] = ""
+                await ctx.send(f"Custom {first} disclaimer cleared. The shared text will be used.")
+                return
+            if len(body) > 200:
+                await ctx.send("Disclaimer must be 200 characters or fewer.")
+                return
+            async with self.config.guild(ctx.guild).disclaimers() as items:
+                items[first] = body
+            await ctx.send(f"Set the {first} disclaimer.")
+            return
+        body = " ".join(part for part in (action, text) if part).strip()
+        if not body:
+            await ctx.send("Provide the new disclaimer text.")
+            return
+        if len(body) > 200:
+            await ctx.send("Disclaimer must be 200 characters or fewer.")
+            return
+        await self.config.guild(ctx.guild).disclaimer_text.set(body)
+        await ctx.send("Updated the shared disclaimer text.")
+
+    @uhset_disclaimer.command(name="reset")
+    async def uhset_disclaimer_reset(
+        self, ctx: commands.Context, action: Optional[str] = None
+    ):
+        """Reset disclaimer text to the built-in line."""
+        if action:
+            key = self._clean_name(action)
+            if key not in ACTIONS:
+                await ctx.send(f"Action must be one of: {humanize_list(list(ACTIONS))}.")
+                return
+            async with self.config.guild(ctx.guild).disclaimers() as items:
+                items[key] = ""
+            await ctx.send(f"Reset the {key} disclaimer override.")
+            return
+        await self.config.guild(ctx.guild).disclaimer_text.set(DEFAULT_DISCLAIMER)
+        await self.config.guild(ctx.guild).disclaimers.set({a: "" for a in ACTIONS})
+        await ctx.send("Reset all disclaimer text.")
+
+    @uhset.command(name="text", aliases=["message"])
+    async def uhset_text(self, ctx: commands.Context, action: str, *, text: str):
+        """Set the joke line used for one command.
+
+        Example:
+        `[p]uhset text ban {target} caught the ban hammer. They are no longer welcome in {server}. Reason: {reason}`
+
+        This replaces that action's custom lines. Turn random defaults
+        off with `[p]uhset defaults` if you want only this line.
+        """
+        action = self._clean_name(action)
+        if action not in ACTIONS:
+            await ctx.send(f"Action must be one of: {humanize_list(list(ACTIONS))}.")
+            return
+        text = text.strip()
+        if len(text) < 3 or len(text) > 1800:
+            await ctx.send("Text must be between 3 and 1800 characters.")
+            return
+        async with self.config.guild(ctx.guild).responses() as responses:
+            responses[action] = [text]
+        await ctx.send(
+            f"Set the {action} line. "
+            f"Use `{ctx.clean_prefix}uhset defaults` if you do not want the built-in pool mixed in."
+        )
+
+    @uhset.command(name="dm")
+    async def uhset_dm(self, ctx: commands.Context, enabled: Optional[bool] = None):
+        """Toggle DMing the targeted user when a joke action is used."""
+        if enabled is None:
+            enabled = not await self.config.guild(ctx.guild).dm_target()
+        await self.config.guild(ctx.guild).dm_target.set(enabled)
+        await ctx.send(
+            "UsersHammer will DM the targeted user."
+            if enabled
+            else "UsersHammer will not DM the targeted user."
+        )
 
     @uhset.command(name="embeds")
     async def uhset_embeds(self, ctx: commands.Context, enabled: Optional[bool] = None):
