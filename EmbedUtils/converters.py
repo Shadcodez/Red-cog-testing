@@ -86,7 +86,7 @@ class StringToEmbed(commands.Converter):
         if not isinstance(data, data_type):
             raise commands.BadArgument(
                 f"This doesn't seem to be properly formatted embed {self.conversion_type.upper()}. "
-                f"See `{ctx.clean_prefix}help {ctx.command.qualified_name}`."
+                f"See `{getattr(ctx, 'clean_prefix', '[p]')}help {getattr(getattr(ctx, 'command', None), 'qualified_name', 'embed')}`."
             )
 
     async def load_from_json(self, ctx: commands.Context, data: str, **kwargs) -> Any:
@@ -155,12 +155,16 @@ class StringToEmbed(commands.Converter):
             description=box(str(error), lang="py"),
             color=await ctx.embed_color(),
         )
-        command = getattr(ctx.command, "qualified_name", "embed")
-        embed.set_footer(text=f"Use `{ctx.clean_prefix}help {command}` to see an example.")
+        command = getattr(getattr(ctx, "command", None), "qualified_name", None) or "embed"
+        prefix = getattr(ctx, "clean_prefix", "[p]")
+        embed.set_footer(text=f"Use `{prefix}help {command}` to see an example.")
         try:
-            await ctx.send(embed=embed)
-        except discord.HTTPException:
-            await ctx.send(f"{error_type}: {error}")
+            if hasattr(ctx, "send"):
+                await ctx.send(embed=embed)
+            elif getattr(ctx, "channel", None) is not None:
+                await ctx.channel.send(embed=embed)
+        except Exception:
+            pass
         raise EmbedConversionError(error_type, error)
 
 

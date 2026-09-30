@@ -30,15 +30,6 @@ JSON_LIST = ListStringToEmbed()
 YAML_LIST = ListStringToEmbed(conversion_type="yaml")
 PASTE_LIST = PastebinListConverter(conversion_type="json")
 
-Source = Literal[
-    "json",
-    "yaml",
-    "file",
-    "yamlfile",
-    "url",
-    "message",
-]
-
 
 class EmbedUtils(DashboardIntegration, commands.Cog):
     """Create, send, store, and edit rich embeds with slash, buttons, and modals."""
@@ -75,7 +66,10 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         except Exception:
             pass
         for menu in self._menus:
-            self.bot.tree.add_command(menu, override=True)
+            try:
+                self.bot.tree.add_command(menu, override=True)
+            except Exception:
+                pass
 
     async def cog_unload(self) -> None:
         for menu in self._menus:
@@ -88,8 +82,13 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
         original = getattr(error, "original", error)
-        if isinstance(original, (EmbedConversionError, EmbedFileError, EmbedLimitReached, ValueError)):
-            await ctx.send(str(getattr(original, "error", original)))
+        if isinstance(original, (EmbedConversionError, EmbedFileError, EmbedLimitReached)):
+            message = str(getattr(original, "error", original))
+            if message:
+                try:
+                    await ctx.send(message)
+                except discord.HTTPException:
+                    pass
             return
         await ctx.bot.on_command_error(ctx, error, unhandled_by_cog=True)
 
@@ -160,6 +159,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         avatar_url: Optional[str] = None,
     ) -> None:
         dest = self.destination(ctx, target)
+        payload = {key: value for key, value in payload.items() if value is not None}
         mentions = discord.AllowedMentions.none()
         perms = getattr(ctx, "permissions", None)
         if perms and getattr(perms, "mention_everyone", False):
