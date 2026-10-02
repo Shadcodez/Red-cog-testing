@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Union
 
 import aiohttp
@@ -35,7 +35,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
     """Create, send, store, and edit rich embeds with slash, buttons, and modals."""
 
     __author__ = ["PhenoM4n4n", "AAA3A"]
-    __version__ = "3.0.0"
+    __version__ = "3.1.0"
 
     def format_help_for_context(self, ctx: commands.Context) -> str:
         base = super().format_help_for_context(ctx)
@@ -60,7 +60,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         ]
 
     async def cog_load(self) -> None:
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20, connect=10))
         try:
             await self.store.import_legacy()
         except Exception:
@@ -398,26 +398,63 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
     # Interactive
     # ------------------------------------------------------------------
 
-    @embed.command(name="builder", aliases=["editor", "interactive", "buttons", "make"])
+    @embed.command(name="builder", aliases=["editor", "interactive", "buttons", "make", "create", "embedcreate", "ecreate"])
     async def embed_builder(
         self,
         ctx: commands.Context,
         channel: Optional[MessageableChannel] = None,
         message: Optional[discord.Message] = None,
+        *,
+        options: str = None,
     ) -> None:
-        """Open the button, dropdown, and modal builder."""
+        """Open the EmbedCreator builder. Flags: title:, description:, colour:, source:, content:, builder:."""
+        from .maker.actions import MakerActions
+        from .maker.converters import EmbedArgsConverter
+        from .maker.views import EmbedEditorView
+
+        parsed = None
+        if options:
+            parsed = await EmbedArgsConverter().convert(ctx, options)
+        if message is None and parsed is not None and parsed.source is not None:
+            message = parsed.source
         if message is None and ctx.message.reference and isinstance(ctx.message.reference.resolved, discord.Message):
             message = ctx.message.reference.resolved
         start = message.embeds[0].copy() if message and message.embeds else None
-        content = message.content if message else ""
-        view = EmbedBuilderView(
-            cog=self,
-            author=ctx.author,
-            embed=start,
-            content=content or "",
-            target=channel or ctx.channel,
+        content = (parsed.content if parsed and parsed.content else None) or (message.content if message else None)
+        view = EmbedEditorView(ctx, embed=start, content=content)
+        if parsed is not None:
+            if parsed.title:
+                view.embed.title = parsed.title
+            if parsed.description:
+                view.embed.description = parsed.description
+            if parsed.colour:
+                view.embed.colour = parsed.colour
+            if parsed.url:
+                view.embed.url = parsed.url
+            if parsed.image:
+                view.embed.set_image(url=parsed.image)
+            if parsed.thumbnail:
+                view.embed.set_thumbnail(url=parsed.thumbnail)
+            if kwargs := parsed.author_kwargs():
+                view.embed.set_author(**kwargs)
+            if kwargs := parsed.footer_kwargs():
+                view.embed.set_footer(**kwargs)
+        try:
+            view.message = await ctx.send(embed=view.embed, content=view.content, view=view)
+        except discord.HTTPException as error:
+            await ctx.send(f"Could not open the builder: {error}")
+            return
+        await ctx.send(
+            "Store, update, or turn this into a server event:",
+            view=MakerActions(self, view, channel or ctx.channel),
         )
-        view.message = await ctx.send(embed=view.embed, view=view)
+
+    @embed.command(name="container", aliases=["containercreate", "ccreate"])
+    async def embed_container(self, ctx: commands.Context, *, options: str = None) -> None:
+        """Open the Components V2 container builder when this discord.py build supports it."""
+        from .maker.embed_support import open_container
+
+        await open_container(self, ctx, options)
 
     @embed.command(name="popup", aliases=["modal", "popout"])
     async def embed_popup(self, ctx: commands.Context, channel: Optional[MessageableChannel] = None) -> None:
@@ -516,6 +553,39 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             content=message.content or None,
         )
         await ctx.send(f"Saved `{name}`.")
+
+    @embed.command(name="update", aliases=["updatestored"])
+    async def embed_update(
+        self,
+        ctx: commands.Context,
+        name: str,
+        source: Optional[str] = "json",
+        global_level: bool = False,
+        *,
+        data: str = None,
+    ) -> None:
+        """Overwrite an existing stored embed. Uses and original author stay."""
+        existing = await self.lookup(ctx, name, global_level)
+        if global_level and not await self.is_owner_user(ctx.author):
+            raise commands.BadArgument("Only the bot owner can update global embeds.")
+        payload = await self.parse_source(ctx, source or "json", data)
+        embeds = payload.get("embeds") or ([payload["embed"]] if payload.get("embed") else [])
+        if not embeds:
+            raise commands.BadArgument("No embed found in that source.")
+        await self.store.save(
+            guild=ctx.guild,
+            name=name,
+            embed=embeds[0],
+            author_id=existing.get("author") or ctx.author.id,
+            global_level=global_level,
+            locked=bool(existing.get("locked")),
+            content=payload.get("content"),
+        )
+        await ctx.send(f"Updated `{name}`.")
+
+    @embed_update.autocomplete("name")
+    async def _ac_update(self, interaction: discord.Interaction, current: str):
+        return await self.autocomplete_names(interaction, current)
 
     @embed.command(name="unstore", aliases=["unstoreembed", "remove", "delete", "rmglobal"])
     async def embed_unstore(
@@ -706,11 +776,17 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         title: str,
         when: str,
         channel: Optional[MessageableChannel] = None,
+        schedule: bool = False,
+        location: Optional[str] = None,
+        end: Optional[str] = None,
         color: Optional[discord.Color] = None,
         *,
         description: str = "",
     ) -> None:
-        """Event embed with a client-local Discord timestamp. `when` is `now` or ISO-8601."""
+        """Event embed. Set schedule to true to also create a Discord server event.
+
+        `when` and `end` accept `now` or ISO-8601. External events need a location.
+        """
         if when.lower() == "now":
             moment = datetime.now(timezone.utc)
         else:
@@ -729,6 +805,45 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             timestamp=moment,
         )
         await self.publish(ctx, {"embed": embed}, channel)
+        if schedule:
+            if end:
+                try:
+                    end_at = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise commands.BadArgument("End time must be ISO-8601.") from exc
+                if end_at.tzinfo is None:
+                    end_at = end_at.replace(tzinfo=timezone.utc)
+            else:
+                end_at = moment + timedelta(hours=1)
+            if end_at <= moment:
+                end_at = moment + timedelta(hours=1)
+            try:
+                event = await self.create_server_event(
+                    ctx.guild,
+                    name=title[:100],
+                    description=(description or "")[:1000] or None,
+                    start=moment,
+                    end=end_at,
+                    location=(location or "Discord")[:100],
+                )
+            except discord.Forbidden:
+                await ctx.send("Embed posted, but I need Manage Events to create the server event.")
+                return
+            except discord.HTTPException as error:
+                await ctx.send(f"Embed posted, but Discord rejected the server event: {error}")
+                return
+            await ctx.send(f"Server event created: {event.url}")
+
+    async def create_server_event(self, guild, *, name, description, start, end, location):
+        return await guild.create_scheduled_event(
+            name=name,
+            description=description,
+            start_time=start,
+            end_time=end,
+            entity_type=discord.EntityType.external,
+            location=location or "Discord",
+            privacy_level=discord.PrivacyLevel.guild_only,
+        )
 
     @embed.command(name="dashboard")
     async def embed_dashboard(self, ctx: commands.Context) -> None:
@@ -762,16 +877,19 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             if not (member.guild_permissions.manage_messages or await self.bot.is_mod(member) or await self.is_owner_user(member)):
                 await interaction.response.send_message("You need Manage Messages to use this.", ephemeral=True)
                 return
-        start = message.embeds[0].copy() if message.embeds else discord.Embed(title="New embed")
-        view = EmbedBuilderView(
-            cog=self,
-            author=interaction.user,
-            embed=start,
-            content=message.content or "",
-            target=interaction.channel,
-        )
+        start = message.embeds[0].copy() if message.embeds else None
+        from .maker.actions import MakerActions
+        from .maker.views import EmbedEditorView
+
+        dummy = type("Ctx", (), {"author": interaction.user, "clean_prefix": "/"})()
+        view = EmbedEditorView(dummy, embed=start, content=message.content or None)
         await interaction.response.send_message(embed=view.embed, view=view, ephemeral=True)
         view.message = await interaction.original_response()
+        await interaction.followup.send(
+            "Store, update, or turn this into a server event:",
+            view=MakerActions(self, view, interaction.channel),
+            ephemeral=True,
+        )
 
     async def context_download(self, interaction: discord.Interaction, message: discord.Message) -> None:
         payload = {}

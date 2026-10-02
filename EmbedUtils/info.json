@@ -1,7 +1,7 @@
 {
     "author": ["PhenoM4n4n", "AAA3A"],
     "name": "EmbedUtils",
-    "install_msg": "EmbedUtils 3 is a new cog with its own storage.\nIt imports leftover Phen/AAA3A embeds automatically on first load.\nStart with `[p]help embed` or `[p]embed builder`. Right-click a message for Build embed / Download embed JSON.",
+    "install_msg": "EmbedUtils 3.1 uses the EmbedCreator builder.\n`[p]embed builder` or `[p]embed create title: Hello`.\nStore, Update stored, Event embed, and Server event sit under the builder.\n`[p]embed update` overwrites a saved embed. `[p]embed event ... True` also creates a Discord server event.",
     "short": "Modern embed creator: slash, buttons, modals, storage.",
     "description": "New EmbedUtils built from the Phen and AAA3A designs. Hybrid commands, autocomplete, message context menus, modal builder, dropdown posting, native webhooks, and automatic one-time import of legacy stored embeds. No AAA3A_utils dependency.",
     "tags": [
