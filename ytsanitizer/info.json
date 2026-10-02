@@ -1,0 +1,6 @@
+{
+  "author": ["YTSanitizer"],
+  "description": "YouTube share-link cleaner for Red. Strips the ?si= share identifier, retriggers the embed, and can delete the original post.",
+  "install_msg": "Thanks for installing YTSanitizer.\n\nAuto-clean is off until you turn it on.\n`[p]ytsanitizeset mode auto` starts the listener.\n`[p]ytsanitizeset mode manual` leaves it command-only.\n`[p]ytsanitizeset delete` toggles deleting the original post.\n\nThe bot needs Send Messages and Embed Links. Deleting the original also needs Manage Messages.",
+  "short": "YouTube ?si= cleaner with auto, manual, and delete toggle"
+}

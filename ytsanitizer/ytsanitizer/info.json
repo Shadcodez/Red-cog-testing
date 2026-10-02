@@ -1,0 +1,13 @@
+{
+  "author": ["YTSanitizer"],
+  "name": "ytsanitizer",
+  "short": "YouTube ?si= cleaner with auto, manual, and delete toggle",
+  "description": "Strips YouTube's ?si= share identifier from links and retriggers the embed. Auto mode listens for new posts. Manual mode only runs when someone uses the command. Deleting the original post is a separate toggle and defaults off.",
+  "install_msg": "YTSanitizer is installed and idle.\n\n`[p]ytsanitizeset mode auto` — clean new posts as they arrive\n`[p]ytsanitizeset mode manual` — command only (default)\n`[p]ytsanitizeset mode off` — disable both\n`[p]ytsanitize` — clean a link, or reply to a post to clean that post\n`[p]ytsanitizeset delete` — toggle deleting the original post\n\nSend Messages and Embed Links are required. Manage Messages is required only when delete is on.\nReplace the author field in info.json before publishing.",
+  "end_user_data_statement": "This cog stores per-server settings only (mode and whether to delete the original post). It does not store messages, user ids, or link history.",
+  "tags": ["utility", "youtube", "moderation"],
+  "requirements": [],
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 8, 1],
+  "type": "COG"
+}
