@@ -518,7 +518,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         view = _ModalLaunch(self, ctx.author.id, dest)
         await ctx.send("Open the popup to create an embed.", view=view)
 
-    @embed_stored.command(name="pick", aliases=["pick", "select"])
+    @embed_stored.command(name="dropdown", aliases=["select"])
     async def embed_dropdown(
         self,
         ctx: commands.Context,
