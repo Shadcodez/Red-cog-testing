@@ -22,9 +22,13 @@ from .converters import (
     read_attachment_text,
 )
 from .dashboard_integration import DashboardIntegration
+from .editor_actions import MakerActions
+from .editor_constants import DEFAULT_CONTAINER_TEXT, DEFAULT_CONTAINER_TITLE
+from .editor_flags import ContainerArgsConverter, EmbedArgsConverter, clone_container, embed_to_container
+from .editor_views import ContainerEditorView, EmbedEditorView
 from .errors import EmbedConversionError, EmbedFileError, EmbedLimitReached
 from .storage import EmbedStore
-from .views import EmbedBuilderView, PaginatorView, PopupCreateModal, StoredEmbedDropdown
+from .views import PaginatorView, PopupCreateModal, StoredEmbedDropdown
 
 JSON_LIST = ListStringToEmbed()
 YAML_LIST = ListStringToEmbed(conversion_type="yaml")
@@ -35,7 +39,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
     """Create, send, store, and edit rich embeds with slash, buttons, and modals."""
 
     __author__ = ["PhenoM4n4n", "AAA3A"]
-    __version__ = "3.1.0"
+    __version__ = "3.1.2"
 
     def format_help_for_context(self, ctx: commands.Context) -> str:
         base = super().format_help_for_context(ctx)
@@ -407,10 +411,9 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         *,
         options: str = None,
     ) -> None:
-        """Open the EmbedCreator builder. Flags: title:, description:, colour:, source:, content:, builder:."""
-        from .maker.actions import MakerActions
-        from .maker.converters import EmbedArgsConverter
-        from .maker.views import EmbedEditorView
+        """Open the button builder. Flags: title:, description:, colour:, source:, content:."""
+        from .editor_flags import EmbedArgsConverter
+        from .editor_views import EmbedEditorView
 
         parsed = None
         if options:
@@ -436,9 +439,11 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             if parsed.thumbnail:
                 view.embed.set_thumbnail(url=parsed.thumbnail)
             if kwargs := parsed.author_kwargs():
-                view.embed.set_author(**kwargs)
+                if kwargs.get("name"):
+                    view.embed.set_author(**kwargs)
             if kwargs := parsed.footer_kwargs():
-                view.embed.set_footer(**kwargs)
+                if kwargs.get("text"):
+                    view.embed.set_footer(**kwargs)
         try:
             view.message = await ctx.send(embed=view.embed, content=view.content, view=view)
         except discord.HTTPException as error:
@@ -452,9 +457,46 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
     @embed.command(name="container", aliases=["containercreate", "ccreate"])
     async def embed_container(self, ctx: commands.Context, *, options: str = None) -> None:
         """Open the Components V2 container builder when this discord.py build supports it."""
-        from .maker.embed_support import open_container
+        import contextlib
+        from redbot.core.utils.chat_formatting import box
 
-        await open_container(self, ctx, options)
+        if not (hasattr(discord.ui, "Container") and hasattr(discord.ui, "LayoutView")):
+            await ctx.send(
+                "Containers need discord.py 2.6+ with Components V2. "
+                f"This bot is on `{discord.__version__}`."
+            )
+            return
+        parsed = (
+            await ContainerArgsConverter().convert(ctx, options)
+            if options
+            else await ContainerArgsConverter._construct_default(ctx)
+        )
+        container = None
+        if parsed.source and parsed.source.components:
+            with contextlib.suppress(Exception):
+                src_view = discord.ui.LayoutView.from_message(parsed.source)
+                for item in src_view.children:
+                    if isinstance(item, discord.ui.Container):
+                        container = clone_container(item)
+                        break
+        if container is None and parsed.source and parsed.source.embeds:
+            container = embed_to_container(parsed.source.embeds[0])
+        if container is None:
+            container = discord.ui.Container(
+                accent_colour=parsed.accent_colour or discord.Colour.blurple(),
+                spoiler=bool(parsed.spoiler),
+            )
+            container.add_item(discord.ui.TextDisplay(f"# {DEFAULT_CONTAINER_TITLE}"))
+            container.add_item(discord.ui.TextDisplay(DEFAULT_CONTAINER_TEXT.replace("[p]", ctx.clean_prefix)))
+        if parsed.text:
+            container.add_item(discord.ui.TextDisplay(parsed.text))
+        try:
+            view = ContainerEditorView(ctx, container=container, content=parsed.content)
+            view.message = await ctx.send(view=view, content=parsed.content)
+        except discord.HTTPException as error:
+            await ctx.send(f"Could not open the container builder: {box(getattr(error, 'text', str(error)), lang='py')}")
+            return
+        await ctx.send("Store or schedule once this is converted back to an embed.", view=MakerActions(self, view, ctx.channel))
 
     @embed.command(name="popup", aliases=["modal", "popout"])
     async def embed_popup(self, ctx: commands.Context, channel: Optional[MessageableChannel] = None) -> None:
@@ -878,8 +920,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
                 await interaction.response.send_message("You need Manage Messages to use this.", ephemeral=True)
                 return
         start = message.embeds[0].copy() if message.embeds else None
-        from .maker.actions import MakerActions
-        from .maker.views import EmbedEditorView
+        from .editor_views import EmbedEditorView
 
         dummy = type("Ctx", (), {"author": interaction.user, "clean_prefix": "/"})()
         view = EmbedEditorView(dummy, embed=start, content=message.content or None)
