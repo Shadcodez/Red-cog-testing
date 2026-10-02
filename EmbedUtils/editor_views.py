@@ -557,6 +557,21 @@ class ContainerEditorView(discord.ui.LayoutView):
         row4.add_item(channel_select)
         self.add_item(row4)
 
+    async def _edit_preview(self, interaction: discord.Interaction) -> None:
+        """Components V2 messages cannot include normal content or embeds."""
+        try:
+            await interaction.message.edit(view=self, content=None)
+        except discord.HTTPException as exc:
+            text = (getattr(exc, "text", None) or str(exc)).split("\n", 1)[0][:300]
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"Discord rejected that edit: {text}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"Discord rejected that edit: {text}", ephemeral=True)
+            raise
+        else:
+            if not interaction.response.is_done():
+                await interaction.response.defer()
+
     def replace_container(self, new_container: discord.ui.Container):
         self.remove_item(self.container)
         self.container = new_container
@@ -570,7 +585,10 @@ class ContainerEditorView(discord.ui.LayoutView):
 
     async def _on_spoiler_button(self, interaction: discord.Interaction):
         self.container.spoiler = not self.container.spoiler
-        await interaction.response.edit_message(view=self, content=self.content)
+        try:
+            await self._edit_preview(interaction)
+        except discord.HTTPException:
+            self.container.spoiler = not self.container.spoiler
 
     async def _on_content_button(self, interaction: discord.Interaction):
         await interaction.response.send_modal(EmbedMessageContentModal(self))
@@ -579,7 +597,10 @@ class ContainerEditorView(discord.ui.LayoutView):
         self.container.clear_items()
         self.container.add_item(discord.ui.TextDisplay("[Empty Container]"))
         self.content = None
-        await interaction.response.edit_message(view=self, content=self.content)
+        try:
+            await self._edit_preview(interaction)
+        except discord.HTTPException:
+            return
 
     async def _on_to_embed_button(self, interaction: discord.Interaction):
         self.stop()
@@ -715,15 +736,10 @@ class ContainerEditorView(discord.ui.LayoutView):
         clean_view.add_item(clone_container(self.container))
 
         try:
-            await channel.send(
-                content=self.content,
-                view=clean_view,
-                allowed_mentions=discord.AllowedMentions(roles=True),
-            )
+            await channel.send(view=clean_view, allowed_mentions=discord.AllowedMentions(roles=True))
         except discord.HTTPException as exc:
-            return await interaction.response.send_message(
-                f"Failed to send container:\n{box(exc.text)}", ephemeral=True
-            )
+            text = (getattr(exc, "text", None) or str(exc)).split("\n", 1)[0][:300]
+            return await interaction.response.send_message(f"Failed to send container: {text}", ephemeral=True)
         else:
             await interaction.response.send_message(
                 f"Container sent to {channel.mention}.", ephemeral=True
@@ -732,23 +748,20 @@ class ContainerEditorView(discord.ui.LayoutView):
     async def modify_target(self, modal: ModalBase, interaction: discord.Interaction):
         if interaction.message:
             self.message = interaction.message
-        previous_container = clone_container(self.container)
+        try:
+            previous_container = clone_container(self.container)
+        except Exception:
+            previous_container = None
         try:
             await modal.edit_target(self.container)
-        except ValueError as exc:
-            return await interaction.response.send_message(f"An error occurred: {exc}", ephemeral=True)
+        except (ValueError, TypeError) as exc:
+            return await interaction.response.send_message(f"Could not apply that change: {exc}", ephemeral=True)
 
         try:
-            await interaction.message.edit(view=self, content=self.content)
-        except discord.HTTPException as exc:
-            self.replace_container(previous_container)
-            await interaction.response.send_message(
-                f"A Discord HTTP error occurred whilst updating the container:\n{box(exc.text)}\n",
-                ephemeral=True,
-            )
-        else:
-            if not interaction.response.is_done():
-                await interaction.response.defer()
+            await self._edit_preview(interaction)
+        except discord.HTTPException:
+            if previous_container is not None:
+                self.replace_container(previous_container)
 
     async def interaction_check(self, interaction: discord.Interaction):
         if interaction.message:

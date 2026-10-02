@@ -502,7 +502,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             container.add_item(discord.ui.TextDisplay(parsed.text))
         try:
             view = ContainerEditorView(ctx, container=container, content=parsed.content)
-            view.message = await ctx.send(view=view, content=parsed.content)
+            view.message = await ctx.send(view=view)
         except discord.HTTPException as error:
             await ctx.send(f"Could not open the container builder: {box(getattr(error, 'text', str(error)), lang='py')}")
             return

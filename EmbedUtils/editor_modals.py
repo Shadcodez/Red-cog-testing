@@ -498,7 +498,10 @@ class ContainerSeparatorModal(ModalBase):
             if spacing_str == "large"
             else discord.SeparatorSpacing.small
         )
-        container.add_item(discord.ui.Separator(visible=visible, spacing=spacing))
+        try:
+            container.add_item(discord.ui.Separator(divider=visible, spacing=spacing))
+        except TypeError:
+            container.add_item(discord.ui.Separator(visible=visible, spacing=spacing))
 
 
 class ContainerMediaGalleryModal(ModalBase):
