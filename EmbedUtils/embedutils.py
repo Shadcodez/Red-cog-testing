@@ -39,7 +39,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
     """Create, send, store, and edit rich embeds with slash, buttons, and modals."""
 
     __author__ = ["PhenoM4n4n", "AAA3A"]
-    __version__ = "3.1.2"
+    __version__ = "3.2.0"
 
     def format_help_for_context(self, ctx: commands.Context) -> str:
         base = super().format_help_for_context(ctx)
@@ -267,6 +267,16 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         }
         await self.publish(ctx, payload, channel_or_message)
 
+    @embed.group(name="import", aliases=["load"], invoke_without_command=True)
+    async def embed_import(self, ctx: commands.Context) -> None:
+        """Import an embed from JSON, YAML, a file, a paste, or a message."""
+        await ctx.send_help()
+
+    @embed.group(name="stored", invoke_without_command=True)
+    async def embed_stored(self, ctx: commands.Context) -> None:
+        """Post, inspect, download, or DM a stored embed."""
+        await ctx.send_help()
+
     # ------------------------------------------------------------------
     # Compose / send
     # ------------------------------------------------------------------
@@ -285,7 +295,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             source = "yamlfile" if source.lower() == "yaml" else "file"
         await self.publish(ctx, await self.parse_source(ctx, source, data), channel_or_message)
 
-    @embed.command(name="json", aliases=["fromjson", "fromdata"])
+    @embed_import.command(name="json", aliases=["fromjson", "fromdata"])
     async def embed_json(
         self,
         ctx: commands.Context,
@@ -297,7 +307,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         kind = "file" if data is None else "json"
         await self.publish(ctx, await self.parse_source(ctx, kind, data), channel_or_message)
 
-    @embed.command(name="yaml", aliases=["fromyaml", "advmake", "advnostore"])
+    @embed_import.command(name="yaml", aliases=["fromyaml", "advmake", "advnostore"])
     async def embed_yaml(
         self,
         ctx: commands.Context,
@@ -309,7 +319,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         kind = "yamlfile" if data is None else "yaml"
         await self.publish(ctx, await self.parse_source(ctx, kind, data), channel_or_message)
 
-    @embed.command(name="fromfile", aliases=["jsonfile", "fromjsonfile", "fromdatafile", "upload", "uploadnostore"])
+    @embed_import.command(name="file", aliases=["jsonfile", "fromjsonfile", "fromdatafile", "upload", "uploadnostore"])
     async def embed_fromfile(
         self,
         ctx: commands.Context,
@@ -318,7 +328,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         """Send from an attached JSON file."""
         await self.publish(ctx, await self.parse_source(ctx, "file", None), channel_or_message)
 
-    @embed.command(name="yamlfile", aliases=["fromyamlfile"])
+    @embed_import.command(name="yamlfile", aliases=["fromyamlfile"])
     async def embed_yamlfile(
         self,
         ctx: commands.Context,
@@ -327,7 +337,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         """Send from an attached YAML file."""
         await self.publish(ctx, await self.parse_source(ctx, "yamlfile", None), channel_or_message)
 
-    @embed.command(name="pastebin", aliases=["frompaste", "frompastebin", "gist", "fromgist", "hastebin", "fromhastebin", "url"])
+    @embed_import.command(name="paste", aliases=["frompaste", "frompastebin", "gist", "fromgist", "hastebin", "fromhastebin", "url"])
     async def embed_url(
         self,
         ctx: commands.Context,
@@ -338,7 +348,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         """Send from Pastebin, Gist, Hastebin, or a raw GitHub file."""
         await self.publish(ctx, await self.parse_source(ctx, "url", data), channel_or_message)
 
-    @embed.command(name="message", aliases=["frommessage", "msg", "frommsg"])
+    @embed_import.command(name="message", aliases=["frommessage", "msg", "frommsg"])
     async def embed_message(
         self,
         ctx: commands.Context,
@@ -454,7 +464,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             view=MakerActions(self, view, channel or ctx.channel),
         )
 
-    @embed.command(name="container", aliases=["containercreate", "ccreate"])
+    @embed.command(name="container", with_app_command=False, aliases=["containercreate", "ccreate"])
     async def embed_container(self, ctx: commands.Context, *, options: str = None) -> None:
         """Open the Components V2 container builder when this discord.py build supports it."""
         import contextlib
@@ -498,7 +508,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             return
         await ctx.send("Store or schedule once this is converted back to an embed.", view=MakerActions(self, view, ctx.channel))
 
-    @embed.command(name="popup", aliases=["modal", "popout"])
+    @embed.command(name="popup", with_app_command=False, aliases=["modal", "popout"])
     async def embed_popup(self, ctx: commands.Context, channel: Optional[MessageableChannel] = None) -> None:
         """Create an embed from a modal popup."""
         dest = channel or ctx.channel
@@ -508,7 +518,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         view = _ModalLaunch(self, ctx.author.id, dest)
         await ctx.send("Open the popup to create an embed.", view=view)
 
-    @embed.command(name="dropdown", aliases=["pick", "select"])
+    @embed_stored.command(name="pick", aliases=["pick", "select"])
     async def embed_dropdown(
         self,
         ctx: commands.Context,
@@ -669,7 +679,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             return
         await ctx.send(embed=pages[0], view=PaginatorView(pages, ctx.author.id))
 
-    @embed.command(name="info", aliases=["infostored", "infostoredembed"])
+    @embed_stored.command(name="info", aliases=["infostored", "infostoredembed"])
     async def embed_info(self, ctx: commands.Context, name: str, global_level: bool = False) -> None:
         """Show storage metadata for an embed."""
         entry = await self.lookup(ctx, name, global_level)
@@ -694,7 +704,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         return await self.autocomplete_names(interaction, current)
 
     @commands.bot_has_permissions(attach_files=True)
-    @embed.command(name="download")
+    @embed_stored.command(name="download")
     async def embed_download(
         self,
         ctx: commands.Context,
@@ -738,7 +748,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
     async def _ac_dl(self, interaction: discord.Interaction, current: str):
         return await self.autocomplete_names(interaction, current)
 
-    @embed.command(name="post", aliases=["poststored", "poststoredembed", "drop", "view", "show", "dropglobal"])
+    @embed_stored.command(name="post", aliases=["poststored", "poststoredembed", "drop", "view", "show", "dropglobal"])
     async def embed_post(
         self,
         ctx: commands.Context,
@@ -758,7 +768,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             raise commands.BadArgument("No embeds to post.")
         await self.publish(ctx, {"content": content, "embeds": embeds}, channel)
 
-    @embed.command(name="webhook", aliases=["postwebhook"])
+    @embed_stored.command(name="webhook", aliases=["postwebhook"])
     async def embed_webhook(
         self,
         ctx: commands.Context,
@@ -784,7 +794,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             avatar_url=avatar_url,
         )
 
-    @embed.command(name="dm", aliases=["dmglobal"])
+    @embed_stored.command(name="dm", aliases=["dmglobal"])
     async def embed_dm(
         self,
         ctx: commands.Context,
@@ -896,7 +906,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         await ctx.send(f"https://embedutils.com/{extra}")
 
     @commands.is_owner()
-    @embed.command(name="limits")
+    @embed.command(name="limits", with_app_command=False)
     async def embed_limits(
         self, ctx: commands.Context, guild_limit: Optional[int] = None, global_limit: Optional[int] = None
     ) -> None:
