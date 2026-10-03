@@ -124,6 +124,20 @@ class Board:
     def key(self) -> tuple:
         return (tuple(self.sq), self.side, self.castling, self.ep)
 
+    def copy(self) -> "Board":
+        other = Board.__new__(Board)
+        other.sq = self.sq.copy()
+        other.side = self.side
+        other.castling = self.castling
+        other.ep = self.ep
+        other.halfmove = self.halfmove
+        other.fullmove = self.fullmove
+        other.king = self.king.copy()
+        return other
+
+    def snapshot(self) -> tuple:
+        return (tuple(self.sq), self.side, self.castling, self.ep, self.halfmove, self.fullmove, tuple(self.king))
+
     def make(self, move: Move) -> Undo:
         piece = self.sq[move.frm]
         undo = Undo(self.sq[move.to], self.castling, self.ep, self.halfmove, piece)
@@ -357,10 +371,22 @@ class Board:
             if move.promo:
                 text += "=" + "NBRQ"[move.promo - KNIGHT]
         undo = self.make(move)
-        if self.attacked(self.king[self.side], self.side ^ 1):
-            text += "#" if not self.legal() else "+"
-        self.unmake(move, undo)
+        try:
+            if self.attacked(self.king[self.side], self.side ^ 1):
+                text += "#" if not self.legal() else "+"
+        finally:
+            self.unmake(move, undo)
         return text
+
+
+def one_turn(before: list, after: list, move: Move) -> bool:
+    """A legal ply changes 2 squares, 3 for en passant, 4 for castling. Nothing else."""
+    changed = [i for i in range(64) if before[i] != after[i]]
+    if move.castle:
+        return len(changed) == 4 and after[move.frm] == EMPTY
+    if move.ep:
+        return len(changed) == 3 and after[move.frm] == EMPTY
+    return len(changed) == 2 and after[move.frm] == EMPTY and after[move.to] != EMPTY
 
 
 class Engine:
@@ -373,25 +399,33 @@ class Engine:
         self.killers: list[list[Optional[Move]]] = []
 
     def search(self, board: Board) -> tuple[Move, int, int]:
+        # Never search the live game board. A timeout used to unwind through
+        # make() without unmake(), so the next apply moved a second piece.
+        work = board.copy()
+        before = board.snapshot()
         self.nodes = 0
         self.deadline = time.monotonic() + self.think_s
         self.killers = [[None, None] for _ in range(self.max_depth + 6)]
-        moves = board.legal()
-        if not moves:
+        legal = work.legal()
+        if not legal:
             raise RuntimeError("no legal moves")
-        self.best = moves[0]
+        self.best = legal[0]
         depth_reached = 1
-        if len(moves) == 1:
-            return moves[0], 0, 1
-        try:
-            for depth in range(1, self.max_depth + 1):
-                self._negamax(board, depth, -30000, 30000, 0)
-                depth_reached = depth
-                if time.monotonic() > self.deadline:
-                    break
-        except TimeoutError:
-            pass
-        return self.best, 0, depth_reached
+        if len(legal) > 1:
+            try:
+                for depth in range(1, self.max_depth + 1):
+                    self._negamax(work, depth, -30000, 30000, 0)
+                    depth_reached = depth
+                    if time.monotonic() > self.deadline:
+                        break
+            except TimeoutError:
+                pass
+        if board.snapshot() != before:
+            raise RuntimeError("search mutated the live board")
+        chosen = self.best
+        if chosen is None or not any(m.uci() == chosen.uci() for m in board.legal()):
+            chosen = board.legal()[0]
+        return chosen, 0, depth_reached
 
     def _timed_out(self) -> bool:
         return self.nodes % 64 == 0 and time.monotonic() > self.deadline
@@ -411,8 +445,10 @@ class Engine:
         moves.sort(key=lambda m: self._score_move(board, m, ply), reverse=True)
         for move in moves:
             undo = board.make(move)
-            score = -self._negamax(board, depth - 1, -beta, -alpha, ply + 1)
-            board.unmake(move, undo)
+            try:
+                score = -self._negamax(board, depth - 1, -beta, -alpha, ply + 1)
+            finally:
+                board.unmake(move, undo)
             if score > alpha:
                 alpha = score
                 if ply == 0:
@@ -433,8 +469,10 @@ class Engine:
             if not board.sq[move.to] and not move.ep and not move.promo:
                 continue
             undo = board.make(move)
-            score = -self._quiesce(board, -beta, -alpha, ply + 1)
-            board.unmake(move, undo)
+            try:
+                score = -self._quiesce(board, -beta, -alpha, ply + 1)
+            finally:
+                board.unmake(move, undo)
             if score >= beta:
                 return beta
             if score > alpha:
@@ -540,7 +578,8 @@ class Session:
     white_id: int
     black_id: int
     board: Board
-    image: bool = False
+    image: bool = True
+    ping: bool = True
     moves: list = field(default_factory=list)
     sans: list = field(default_factory=list)
     keys: list = field(default_factory=list)
@@ -726,14 +765,14 @@ class Chessmaster(commands.Cog):
     """Play chess in this channel."""
 
     __author__ = "SHADOW"
-    __version__ = "1.1.0"
+    __version__ = "1.2.0"
 
     def __init__(self, bot: Red):
         self.bot = bot
         self.games: dict[int, Session] = {}
         self.pending: set[int] = set()
         self.config = Config.get_conf(self, identifier=264837192, force_registration=True)
-        self.config.register_guild(image_mode=False)
+        self.config.register_guild(image_mode=True, ping_turn=True)
         self._sweeper: Optional[asyncio.Task] = None
 
     async def cog_load(self) -> None:
@@ -814,21 +853,45 @@ class Chessmaster(commands.Cog):
             embed.set_footer(text=footer or f"{who} to move{offer} · {mode} board · SHADOW")
         return embed, file
 
-    async def edit_board(self, interaction: discord.Interaction, session: Session, view: Optional[discord.ui.View], over: str = "", footer: str = "") -> None:
+    async def edit_board(
+        self,
+        interaction: discord.Interaction,
+        session: Session,
+        view: Optional[discord.ui.View],
+        over: str = "",
+        footer: str = "",
+        notice: bool = False,
+    ) -> None:
         embed, file = self.payload(session, over, footer)
         kwargs = {"embed": embed, "view": view, "attachments": [file] if file else []}
+        if notice or over:
+            content, mentions = self.turn_ping(session, notice and not over)
+            kwargs["content"] = content
+            kwargs["allowed_mentions"] = mentions
         if interaction.response.is_done():
             await interaction.edit_original_response(**kwargs)
         else:
             await interaction.response.edit_message(**kwargs)
 
+    def turn_ping(self, session: Session, enabled: bool):
+        if not enabled or not session.ping:
+            return "", discord.AllowedMentions.none()
+        uid = session.player_id(session.board.side)
+        if not uid:
+            return "", discord.AllowedMentions.none()
+        return f"<@{uid}> your move.", discord.AllowedMentions(users=[discord.Object(id=uid)])
+
     async def send_board(self, ctx: commands.Context, session: Session, view: Optional[discord.ui.View]) -> None:
         embed, file = self.payload(session)
+        content, mentions = self.turn_ping(session, True)
+        kwargs = {"embed": embed, "view": view, "file": file, "allowed_mentions": mentions}
+        if content:
+            kwargs["content"] = content
         if ctx.interaction:
-            await ctx.interaction.response.send_message(embed=embed, view=view, file=file)
+            await ctx.interaction.response.send_message(**kwargs)
             session.message = await ctx.interaction.original_response()
         else:
-            session.message = await ctx.send(embed=embed, view=view, file=file)
+            session.message = await ctx.send(**kwargs)
 
     @commands.hybrid_group(name="chessmaster")
     @commands.guild_only()
@@ -857,6 +920,7 @@ class Chessmaster(commands.Cog):
             black_id=black_id,
             board=Board(),
             image=await self.config.guild(ctx.guild).image_mode(),
+            ping=await self.config.guild(ctx.guild).ping_turn(),
             strength=strength,
             pgn_white=ctx.author.display_name if white_id else "Cog-800",
             pgn_black=ctx.author.display_name if black_id else "Cog-800",
@@ -924,6 +988,13 @@ class Chessmaster(commands.Cog):
         await self.config.guild(ctx.guild).image_mode.set(style == "image")
         await ctx.send(f"New games in this server will use a {style} board.")
 
+    @chessmaster.command(name="ping")
+    @commands.admin_or_permissions(manage_guild=True)
+    async def ping(self, ctx: commands.Context, enabled: bool) -> None:
+        """Ping the player whose turn it is. Use true or false."""
+        await self.config.guild(ctx.guild).ping_turn.set(enabled)
+        await ctx.send("Turn pings are on." if enabled else "Turn pings are off.")
+
     async def _occupy(self, ctx: commands.Context) -> bool:
         if ctx.channel.id in self.games or ctx.channel.id in self.pending:
             await ctx.send("This channel already has a game or a pending challenge.")
@@ -934,13 +1005,15 @@ class Chessmaster(commands.Cog):
         guild = interaction.guild
         white = guild.get_member(white_id) if guild else None
         black = guild.get_member(black_id) if guild else None
-        image = await self.config.guild(guild).image_mode() if guild else False
+        image = await self.config.guild(guild).image_mode() if guild else True
+        ping = await self.config.guild(guild).ping_turn() if guild else True
         session = Session(
             channel_id=interaction.channel_id,
             white_id=white_id,
             black_id=black_id,
             board=Board(),
             image=image,
+            ping=ping,
             pgn_white=white.display_name if white else "White",
             pgn_black=black.display_name if black else "Black",
         )
@@ -1026,8 +1099,14 @@ class Chessmaster(commands.Cog):
         await self.commit(interaction, session, move)
 
     async def commit(self, interaction: discord.Interaction, session: Session, move: Move) -> None:
+        before = session.board.sq.copy()
+        side = session.board.side
         session.sans.append(session.board.san(move))
         session.board.make(move)
+        if session.board.side == side or not one_turn(before, session.board.sq, move):
+            session.thinking = False
+            await self.finish(interaction, session, "Move broke the one-piece rule. Game wiped.")
+            return
         session.moves.append(move)
         session.keys.append(session.board.key())
         session.draw_offer = -1
@@ -1044,7 +1123,7 @@ class Chessmaster(commands.Cog):
             await self.edit_board(interaction, session, None, footer="Cog-800 is thinking.")
             await self._engine_move(session, interaction)
             return
-        await self.edit_board(interaction, session, self.bind(session, GameView(self, session)))
+        await self.edit_board(interaction, session, self.bind(session, GameView(self, session)), notice=True)
 
     async def _engine_move(self, session: Session, interaction: discord.Interaction) -> None:
         think, depth = STRENGTHS[session.strength]
@@ -1056,7 +1135,13 @@ class Chessmaster(commands.Cog):
             await self.finish(interaction, session, "Engine failed. Game wiped.")
             return
         san = session.board.san(move)
+        before = session.board.sq.copy()
+        side = session.board.side
         session.board.make(move)
+        if session.board.side == side or not one_turn(before, session.board.sq, move):
+            session.thinking = False
+            await self.finish(interaction, session, "Engine move broke the one-piece rule. Game wiped.")
+            return
         session.moves.append(move)
         session.sans.append(san)
         session.keys.append(session.board.key())
@@ -1065,7 +1150,14 @@ class Chessmaster(commands.Cog):
         reason = self.terminal(session)
         view = None if reason else self.bind(session, GameView(self, session))
         footer = "" if reason else f"Cog-800 played {san} · depth {reached} · {engine.nodes} nodes"
-        await self.edit_board(interaction, session, view, reason + "\n" + self.pgn(session, reason) if reason else "", footer)
+        await self.edit_board(
+            interaction,
+            session,
+            view,
+            reason + "\n" + self.pgn(session, reason) if reason else "",
+            footer,
+            notice=not reason,
+        )
         if reason:
             self._drop(session)
 
@@ -1086,7 +1178,13 @@ class Chessmaster(commands.Cog):
         message = session.message
         same = interaction.message is not None and message is not None and interaction.message.id == message.id
         self._drop(session)
-        kwargs = {"embed": embed, "view": None, "attachments": [file] if file else []}
+        kwargs = {
+            "content": "",
+            "embed": embed,
+            "view": None,
+            "attachments": [file] if file else [],
+            "allowed_mentions": discord.AllowedMentions.none(),
+        }
         if same and not interaction.response.is_done():
             await interaction.response.edit_message(**kwargs)
             return
