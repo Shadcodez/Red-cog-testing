@@ -34,7 +34,7 @@ The same commands exist as `/battleship` after the tree is synced.
 
 Fleets are pre-rolled in DMs only. Before lock-in, pick a ship and Place it on a cell, Rotate it, or nudge it North, South, East, or West. Reroll deals a new fleet. There is no channel setup if DMs are closed. **Lock pre-rolled fleet** skips rearranging. The challenger, or the human against Cog-800, fires first.
 
-Fire with the column and row menus, or **Type coordinate** (`B7`). **Surrender** (or `[p]battleship surrender`) gives the match to the other side. A sunk fleet or 45 minutes idle also clears the session.
+A hit or a sunk ship grants another shot. A miss passes the turn. Sunk hulls stay drawn on that ocean for the rest of the match. Charts are built in memory and attached to the one channel message. Nothing is written to disk.
 
 ## Cog-800
 

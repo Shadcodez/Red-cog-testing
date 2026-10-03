@@ -169,10 +169,9 @@ def _grid(
             draw.rectangle((x, y, x + cell - 1, y + cell - 1), outline=(232, 214, 170, 160))
     base.paste(Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB"))
     ink = ImageDraw.Draw(base)
-    if show_hulls:
-        for ship in ships:
-            if ship.get("show"):
-                _hull(ink, ship["cells"], origin, cell, ship.get("sunk", False))
+    for ship in ships:
+        if ship.get("show"):
+            _hull(ink, ship["cells"], origin, cell, ship.get("sunk", False))
     for shot in shots:
         c, r = shot["cell"]
         kind = shot["kind"]
@@ -182,12 +181,11 @@ def _grid(
             _splash(ink, cx, cy, cell // 5)
         elif kind in ("hit", "sunk"):
             _burst(ink, cx, cy, cell // 4)
-    label = _font(15, bold=True)
-    small = _font(13, bold=True)
+    label = _font(16, bold=True)
     for i, ch in enumerate(COLS):
-        ink.text((ox + i * cell + cell // 2, oy - 22), ch, fill=BRASS, font=small, anchor="mm")
+        ink.text((ox + i * cell + cell // 2, oy - 18), ch, fill=BRASS, font=label, anchor="mm")
     for i in range(10):
-        ink.text((ox - 16, oy + i * cell + cell // 2), str(i + 1), fill=BRASS, font=small, anchor="mm")
+        ink.text((ox - 18, oy + i * cell + cell // 2), str(i + 1), fill=BRASS, font=label, anchor="mm")
     ink.rectangle((ox - 1, oy - 1, ox + side, oy + side), outline=BRASS, width=2)
     _ = label
 
@@ -205,33 +203,33 @@ def render_boards(
     cell = 42
     margin = 54
     gap = 46
-    header = 78
-    foot = 46
+    header = 86
+    foot = 54
     board = cell * 10
     n = len(panels)
     w = margin * 2 + n * board + (n - 1) * gap + 36
-    h = header + board + 78 + foot
+    h = header + 70 + board + 64 + foot
     img = _gradient(w, h, (10, 24, 46), (6, 40, 62))
     draw = ImageDraw.Draw(img)
     draw.rectangle((14, 14, w - 14, h - 14), outline=BRASS, width=2)
     draw.rectangle((18, 18, w - 18, h - 18), outline=BRASS_DIM, width=1)
-    _anchor(draw, 42, 46, 22, BRASS)
-    draw.text((64, 30), title, fill=INK, font=_font(28, bold=True))
-    draw.text((64, 62), subtitle, fill=BRASS, font=_font(15))
+    _anchor(draw, 42, 48, 22, BRASS)
+    draw.text((64, 32), title, fill=INK, font=_font(28, bold=True))
+    draw.text((64, 64), subtitle, fill=BRASS, font=_font(16, bold=True))
     for i, panel in enumerate(panels):
         ox = margin + 10 + i * (board + gap)
-        oy = header + 28
+        oy = header + 72
         _grid(img, (ox, oy), cell, panel.get("ships", []), panel.get("shots", []), panel.get("show_hulls", False))
         d = ImageDraw.Draw(img)
         accent = panel.get("accent", BRASS)
-        d.rounded_rectangle((ox, oy - 26, ox + min(220, board), oy - 6), 4, fill=accent)
-        d.text((ox + 8, oy - 16), panel.get("heading", "OCEAN")[:28], fill=(12, 18, 28), font=_font(13, bold=True), anchor="lm")
+        d.rounded_rectangle((ox, oy - 52, ox + min(280, board), oy - 30), 4, fill=accent)
+        d.text((ox + 8, oy - 41), panel.get("heading", "OCEAN")[:32], fill=(12, 18, 28), font=_font(14, bold=True), anchor="lm")
         afloat = panel.get("afloat", "")
         if afloat:
-            d.text((ox, oy + board + 12), afloat, fill=FOAM, font=_font(13))
+            d.text((ox, oy + board + 16), afloat, fill=FOAM, font=_font(15, bold=True))
     d = ImageDraw.Draw(img)
-    d.text((margin, h - 32), footer[:110], fill=(168, 156, 132), font=_font(13))
-    d.text((w - margin, h - 32), "BATTLESHIP", fill=BRASS_DIM, font=_font(13, bold=True), anchor="ra")
+    d.text((margin, h - 34), footer[:120], fill=(198, 186, 156), font=_font(14, bold=True))
+    d.text((w - margin, h - 34), "BATTLESHIP", fill=BRASS, font=_font(14, bold=True), anchor="ra")
     buf = BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return buf.getvalue()

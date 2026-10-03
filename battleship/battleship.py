@@ -363,7 +363,8 @@ class Battleship(commands.Cog):
                     "show": show_hulls or sunk,
                     "mark": ship.mark,
                 })
-            afloat = f"{fleet.afloat()} afloat  ·  {', '.join(fleet.sunk_names()) or 'none sunk'}"
+            sunk = [ship.name for ship in fleet.ships if ship.placed and all(c in fleet.hits for c in ship.cells)]
+            afloat = "Sunk: " + (", ".join(sunk) if sunk else "none")
         accent = (212, 175, 98) if owner == session.players[0] else (176, 92, 74)
         return {
             "heading": f"{session.name(owner).upper()}  ·  OCEAN",
@@ -387,7 +388,7 @@ class Battleship(commands.Cog):
             embed.add_field(name="Locking in", value=", ".join(waiting) or "ready", inline=True)
         if session.log:
             embed.add_field(name="Last shots", value="\n".join(session.log[-4:])[:1000], inline=False)
-        embed.set_footer(text="Hulls stay hidden until sunk. My fleet is private.")
+        embed.set_footer(text="A hit shoots again. Sunk hulls stay on the chart. My fleet is private.")
         return embed
 
     async def _chart(self, session: Session, notice: str, reveal: bool) -> discord.File:
@@ -533,12 +534,15 @@ class Battleship(commands.Cog):
             return
         if session.bot_id and session.turn == session.bot_id:
             await self.publish(interaction, session, session.log[-1])
-            await asyncio.sleep(1.1)
-            if session.channel_id not in self.games:
-                return
-            await self._resolve(session, session.bot_id, self._ai_shot(session))
-            if session.channel_id in self.games:
-                await self.publish(interaction, session, session.log[-1])
+            shots = 0
+            while session.channel_id in self.games and session.phase == "battle" and session.turn == session.bot_id and shots < 16:
+                await asyncio.sleep(1.1)
+                if session.channel_id not in self.games:
+                    return
+                await self._resolve(session, session.bot_id, self._ai_shot(session))
+                shots += 1
+                if session.channel_id in self.games or session.phase == "done":
+                    await self.publish(interaction, session, session.log[-1])
             return
         await self.publish(interaction, session, session.log[-1])
 
@@ -549,16 +553,15 @@ class Battleship(commands.Cog):
         ship = session.fleets[defender].ship_at(cell)
         if result == "miss":
             line = f"{session.name(attacker)} missed at {label(cell)}."
+            session.turn = defender
         elif result == "sunk":
-            line = f"{session.name(attacker)} sunk the {ship.name} at {label(cell)}."
+            line = f"{session.name(attacker)} sunk the {ship.name} at {label(cell)}. Shoot again."
         else:
-            line = f"{session.name(attacker)} hit at {label(cell)}."
+            line = f"{session.name(attacker)} hit at {label(cell)}. Shoot again."
         session.log.append(line)
         session.touch()
         if session.fleets[defender].lost():
             await self.finish(session, f"{session.name(attacker)} sunk the fleet.", winner=attacker)
-            return
-        session.turn = defender
 
     async def private_chart(self, interaction: discord.Interaction, session: Session) -> None:
         uid = interaction.user.id
@@ -570,16 +573,11 @@ class Battleship(commands.Cog):
             await interaction.response.send_message("Your fleet is not deployed yet.", ephemeral=True)
             return
         tracking = session.shots.get(uid, [])
+        enemy = self._panel(session, session.opponent(uid), show_hulls=False)
+        enemy["heading"] = "ENEMY WATERS"
         panels = [
             self._panel(session, uid, show_hulls=True),
-            {
-                "heading": "ENEMY WATERS",
-                "ships": [],
-                "shots": tracking,
-                "show_hulls": False,
-                "accent": (176, 92, 74),
-                "afloat": "your tracking chart",
-            },
+            enemy,
         ]
         panels[0]["heading"] = "YOUR FLEET"
         png = await asyncio.to_thread(
