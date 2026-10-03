@@ -30,7 +30,7 @@ Use the name you already gave the repo if it is not `testing`. Pillow is install
 [p]battleship ping true
 ```
 
-The same commands exist as `/battleship` after the tree is synced.
+The same commands exist under the alias `[p]sbs`.
 
 Fleets are pre-rolled in DMs only. Before lock-in, pick a ship and Place it on a cell, Rotate it, or nudge it North, South, East, or West. Reroll deals a new fleet. There is no channel setup if DMs are closed. **Lock pre-rolled fleet** skips rearranging. The challenger, or the human against Cog-800, fires first.
 

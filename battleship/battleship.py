@@ -241,7 +241,7 @@ class Battleship(commands.Cog):
         session.view = view
         return view
 
-    @commands.hybrid_group(name="battleship", aliases=["sbs"])
+    @commands.group(name="battleship", aliases=["sbs"])
     @commands.guild_only()
     @commands.bot_has_permissions(embed_links=True, send_messages=True, attach_files=True)
     async def battleship(self, ctx: commands.Context) -> None:
@@ -250,7 +250,6 @@ class Battleship(commands.Cog):
             await ctx.send_help()
 
     @battleship.command(name="bot")
-    @discord.app_commands.describe(strength="How hard Cog-800 hunts")
     async def vs_bot(self, ctx: commands.Context, strength: str = "normal") -> None:
         """Fight Cog-800. Strength: easy, normal, or hard."""
         strength = strength.lower()
@@ -287,7 +286,6 @@ class Battleship(commands.Cog):
         await self.mail_setup(session)
 
     @battleship.command(name="challenge")
-    @discord.app_commands.describe(opponent="Member to invite")
     async def challenge(self, ctx: commands.Context, opponent: discord.Member) -> None:
         """Challenge another member."""
         if opponent.bot or opponent.id == ctx.author.id:
