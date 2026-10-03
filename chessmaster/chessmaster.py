@@ -248,6 +248,8 @@ class Board:
             f, r = sq & 7, sq >> 3
             if kind == PAWN:
                 one = sq + fwd
+                if not 0 <= one < 64:
+                    continue
                 if board[one] == EMPTY:
                     if (one >> 3) == promo_rank:
                         moves.extend(Move(sq, one, promo) for promo in (QUEEN, ROOK, BISHOP, KNIGHT))
@@ -265,8 +267,11 @@ class Board:
                             moves.extend(Move(sq, to, promo) for promo in (QUEEN, ROOK, BISHOP, KNIGHT))
                         else:
                             moves.append(Move(sq, to))
-                    elif to == self.ep:
-                        moves.append(Move(sq, to, ep=True))
+                    elif to == self.ep and self.ep >= 0:
+                        cap_sq = to - 8 if side == WHITE else to + 8
+                        cap = board[cap_sq] if 0 <= cap_sq < 64 else EMPTY
+                        if cap and color_of(cap) != side and kind_of(cap) == PAWN:
+                            moves.append(Move(sq, to, ep=True))
             elif kind == KNIGHT:
                 for df, dr in ((-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)):
                     tf, tr = f + df, r + dr
@@ -285,9 +290,15 @@ class Board:
                             if not board[to] or color_of(board[to]) != side:
                                 moves.append(Move(sq, to))
                 for bit in ((WK, WQ) if side == WHITE else (BK, BQ)):
-                    if self.castling & bit and not any(board[s] for s in CASTLE_PATH[bit]):
-                        if not any(self.attacked(s, side ^ 1) for s in CASTLE_SAFE[bit]):
-                            moves.append(Move(sq, CASTLE_KING_TO[bit], castle=bit))
+                    rook_sq = CASTLE_ROOK_FROM[bit]
+                    rook = board[rook_sq]
+                    if not (self.castling & bit) or not rook or kind_of(rook) != ROOK or color_of(rook) != side:
+                        continue
+                    if any(board[s] for s in CASTLE_PATH[bit]):
+                        continue
+                    if any(self.attacked(s, side ^ 1) for s in CASTLE_SAFE[bit]):
+                        continue
+                    moves.append(Move(sq, CASTLE_KING_TO[bit], castle=bit))
             else:
                 deltas = []
                 if kind in (BISHOP, QUEEN):
@@ -623,7 +634,7 @@ class MoveSelect(discord.ui.Select):
             if value in seen:
                 continue
             seen.add(value)
-            options.append(discord.SelectOption(label=session.label(move)[:100], value=value))
+            options.append(discord.SelectOption(label=session.label(move)[:100], value=value, description=value))
         super().__init__(placeholder=f"Legal moves ({page + 1}/{len(pages)})", options=options[:25], row=0)
         self.cog = cog
         self.session = session
@@ -682,6 +693,10 @@ class GameView(discord.ui.View):
         self.session.image = not self.session.image
         view = self.cog.bind(self.session, GameView(self.cog, self.session, self.page))
         await self.cog.edit_board(interaction, self.session, view)
+
+    @discord.ui.button(label="Move guide", style=discord.ButtonStyle.secondary, row=2)
+    async def move_guide(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_message(self.cog.guide_text(self.session), ephemeral=True)
 
     @discord.ui.button(label="Type move", style=discord.ButtonStyle.primary, row=2)
     async def type_move(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -765,7 +780,7 @@ class Chessmaster(commands.Cog):
     """Play chess in this channel."""
 
     __author__ = "SHADOW"
-    __version__ = "1.2.0"
+    __version__ = "1.3.0"
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -1204,21 +1219,46 @@ class Chessmaster(commands.Cog):
             body.append(f"{i // 2 + 1}. {session.sans[i]} {black}".rstrip())
         return f'[White "{session.pgn_white}"] [Black "{session.pgn_black}"] [Result "{result}"] {" ".join(body)} {result}'
 
+    def guide_text(self, session: Session) -> str:
+        legal = session.board.legal()
+        session.cache(legal)
+        side = "White" if session.board.side == WHITE else "Black"
+        lines = [
+            f"Move guide — {side} to move.",
+            "Open Type move and enter one of these.",
+            "Pawn: e4 or e2e4",
+            "Piece: Nf3 or g1f3. Add the file if two can move: Nbd2",
+            "Capture: exd5",
+            "Castle: O-O or O-O-O. Zeros work too: 0-0",
+            "Promote: e8=Q or e7e8q. Rook, bishop, and knight work the same way.",
+            "",
+            "Legal now:",
+        ]
+        listed = ", ".join(f"{session.label(m)} ({m.uci()})" for m in legal) or "none"
+        text = "\n".join(lines) + "\n" + listed
+        return text[:1900]
+
     def parse(self, session: Session, text: str) -> Optional[Move]:
         raw = text.replace("0-0-0", "O-O-O").replace("0-0", "O-O").replace("×", "x").strip()
         legal = session.board.legal()
-        compact = raw.lower().replace("=", "")
+        compact = raw.lower().replace("=", "").replace("+", "").replace("#", "")
         for move in legal:
             if move.uci() == compact:
                 return move
         target = raw.replace("+", "").replace("#", "")
-        matches = [m for m in legal if session.board.san(m, legal).replace("+", "").replace("#", "") == target]
+        sans = [(m, session.board.san(m, legal).replace("+", "").replace("#", "")) for m in legal]
+        matches = [m for m, san in sans if san.lower() == target.lower()]
         if len(matches) == 1:
             return matches[0]
-        alias = {"o-o": "O-O", "o-o-o": "O-O-O"}
-        want = alias.get(raw.lower())
+        # e8Q and e8=Q both mean the queen promotion.
+        loose = target.replace("=", "")
+        matches = [m for m, san in sans if san.replace("=", "").lower() == loose.lower()]
+        if len(matches) == 1:
+            return matches[0]
+        alias = {"o-o": "O-O", "o-o-o": "O-O-O", "oo": "O-O", "ooo": "O-O-O"}
+        want = alias.get(raw.lower().replace("+", "").replace("#", ""))
         if want:
-            matches = [m for m in legal if session.board.san(m, legal).startswith(want)]
+            matches = [m for m, san in sans if san == want]
             if len(matches) == 1:
                 return matches[0]
         return None
