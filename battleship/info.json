@@ -1,0 +1,13 @@
+{
+  "author": ["SHADOW"],
+  "name": "Battleship",
+  "short": "Channel battleship vs a member or Cog-800.",
+  "description": "Play battleship in a channel against another member or Cog-800. One game per channel, one edited message. The public chart shows hits and misses only. Hulls stay hidden until that ship is sunk. My fleet opens a private chart. Text charts are the default. Image charts are optional.",
+  "install_msg": "Thanks for installing Battleship by SHADOW. Start with [p]battleship bot. Switch charts with [p]battleship mode image. Image mode needs Attach Files.",
+  "end_user_data_statement": "This cog stores two guild settings in Red Config: image or text chart, and whether to ping the player on their shot. Live games stay in memory and are deleted when the game ends, is resigned, or expires. No match history is written to disk.",
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 8, 1],
+  "requirements": ["Pillow"],
+  "tags": ["battleship", "games", "fun"],
+  "type": "COG"
+}
