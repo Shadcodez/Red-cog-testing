@@ -1,0 +1,15 @@
+{
+  "author": ["SHADOW"],
+  "name": "Connect Four",
+  "short": "Channel Connect Four vs a member or Cog-800.",
+  "description": "Play Connect Four in a channel against another member or Cog-800. One game per channel, one edited message. Text boards are the default. Image boards are optional per server and can be switched on a live game. Drop a disc with the column buttons.",
+  "install_msg": "Thanks for installing Connect Four by SHADOW. Start with [p]connectfour bot. Switch boards with [p]connectfour mode image. Image mode needs the Attach Files permission.",
+  "end_user_data_statement": "This cog stores two guild settings in Red Config: image or text board, and whether to ping the player on their turn. Live games stay in memory and are deleted when the game ends, is surrendered, or expires. No match history is written to disk.",
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 8, 1],
+  "requirements": ["Pillow"],
+  "tags": ["connectfour", "games", "fun"],
+  "type": "COG",
+  "hidden": false,
+  "disabled": false
+}
