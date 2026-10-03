@@ -1,7 +1,13 @@
 {
   "author": ["SHADOW"],
-  "description": "Channel chess for Red. Two members, or one member against the built-in Cog-800 engine. The board is one edited message. Image boards are optional.",
-  "install_msg": "Chessmaster by SHADOW is installed. Use [p]chessmaster bot, or [p]chessmaster mode image to turn on picture boards. The bot needs Embed Links, and Attach Files if you use image mode.",
+  "name": "Chessmaster",
   "short": "Channel chess vs a member or Cog-800.",
-  "tags": ["chess", "games", "fun"]
+  "description": "Play chess in a channel against another member or the built-in Cog-800 engine. The board stays on one message, which is edited instead of spammed. Text boards are the default. Image boards are optional per server and can be switched on a live game.",
+  "install_msg": "Thanks for installing Chessmaster by SHADOW. Start with [p]chessmaster bot. Switch boards with [p]chessmaster mode image. Image mode needs the Attach Files permission.",
+  "end_user_data_statement": "This cog stores one guild setting in Red Config: whether new games use a text board or an image board. Live games are kept in memory only and are deleted when the game ends, is resigned, or expires. No match history is written to disk.",
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 8, 1],
+  "requirements": ["Pillow"],
+  "tags": ["chess", "games", "fun"],
+  "type": "COG"
 }

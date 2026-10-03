@@ -1,6 +1,6 @@
 # Chessmaster
 
-Author: SHADOW
+Author: SHADOW6six
 
 Channel chess for Red. One game per channel, one edited message. Text board by default. Image board is optional.
 
