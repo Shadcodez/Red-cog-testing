@@ -1225,11 +1225,11 @@ class Chessmaster(commands.Cog):
         side = "White" if session.board.side == WHITE else "Black"
         lines = [
             f"Move guide — {side} to move.",
-            "Open Type move and enter one of these.",
+            "Click [Type move] and enter one of these.",
             "Pawn: e4 or e2e4",
-            "Piece: Nf3 or g1f3. Add the file if two can move: Nbd2",
+            "Piece: Nf3 or g1f3. is an example of moving a Knight",
             "Capture: exd5",
-            "Castle: O-O or O-O-O. Zeros work too: 0-0",
+            "Castle: O-O or O-O-O. O-O denotes kingside castling (the rook moves two squares), while O-O-O denotes queenside castling (the rook moves three squares). Zeros work too: 0-0",
             "Promote: e8=Q or e7e8q. Rook, bishop, and knight work the same way.",
             "",
             "Legal now:",
