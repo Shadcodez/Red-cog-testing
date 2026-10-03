@@ -246,8 +246,6 @@ class Battleship(commands.Cog):
     @commands.bot_has_permissions(embed_links=True, send_messages=True, attach_files=True)
     async def battleship(self, ctx: commands.Context) -> None:
         """Play battleship in this channel."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help()
 
     @battleship.command(name="bot")
     async def vs_bot(self, ctx: commands.Context, strength: str = "normal") -> None:
