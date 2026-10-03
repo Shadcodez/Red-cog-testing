@@ -24,6 +24,7 @@ Use the name you already gave the repo if it is not `testing`. Pillow is install
 
 ```
 [p]battleship bot [easy|normal|hard]
+[p]sbs bot [easy|normal|hard]
 [p]battleship challenge @member
 [p]battleship surrender
 [p]battleship ping true

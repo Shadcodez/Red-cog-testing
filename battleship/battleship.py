@@ -241,7 +241,7 @@ class Battleship(commands.Cog):
         session.view = view
         return view
 
-    @commands.hybrid_group(name="battleship", aliases=["bs", "seabattle"])
+    @commands.hybrid_group(name="battleship", aliases=["sbs"])
     @commands.guild_only()
     @commands.bot_has_permissions(embed_links=True, send_messages=True, attach_files=True)
     async def battleship(self, ctx: commands.Context) -> None:
