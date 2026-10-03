@@ -17,7 +17,7 @@ import discord
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 
-from .art import HAS_PIL, render_boards, text_grid
+from .art import HAS_PIL, render_boards
 
 Cell = Tuple[int, int]
 COLS = "ABCDEFGHIJ"
@@ -202,7 +202,7 @@ class Battleship(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=8844220617, force_registration=True)
-        self.config.register_guild(image=False, ping=True)
+        self.config.register_guild(ping=True)
         self.games: Dict[int, Session] = {}
         self.task: Optional[asyncio.Task] = None
 
@@ -241,13 +241,6 @@ class Battleship(commands.Cog):
         session.view = view
         return view
 
-    async def _image(self, session: Session) -> bool:
-        if not HAS_PIL:
-            return False
-        if session.image is not None:
-            return session.image
-        return await self.config.guild_from_id(session.guild_id).image()
-
     @commands.hybrid_group(name="battleship", aliases=["bs", "seabattle"])
     @commands.guild_only()
     @commands.bot_has_permissions(embed_links=True, send_messages=True, attach_files=True)
@@ -263,6 +256,9 @@ class Battleship(commands.Cog):
         strength = strength.lower()
         if strength not in ("easy", "normal", "hard"):
             await ctx.send("Strength is easy, normal, or hard.")
+            return
+        if not HAS_PIL:
+            await ctx.send("Battleship needs Pillow. Update the repo and run cog install again, or install Pillow in the bot venv.")
             return
         if not await self._occupy(ctx):
             return
@@ -297,6 +293,9 @@ class Battleship(commands.Cog):
         if opponent.bot or opponent.id == ctx.author.id:
             await ctx.send("Challenge a member, or use `battleship bot` for Cog-800.")
             return
+        if not HAS_PIL:
+            await ctx.send("Battleship needs Pillow. Update the repo and run cog install again, or install Pillow in the bot venv.")
+            return
         if not await self._occupy(ctx):
             return
         session = Session(
@@ -320,21 +319,6 @@ class Battleship(commands.Cog):
             await ctx.send("You have no battle in this channel.")
             return
         await self.surrender(session, ctx.author.id)
-
-    @battleship.command(name="mode")
-    @commands.admin_or_permissions(manage_guild=True)
-    @discord.app_commands.describe(style="text or image")
-    async def mode(self, ctx: commands.Context, style: str) -> None:
-        """Set the guild default chart: text or image."""
-        style = style.lower()
-        if style not in ("text", "image"):
-            await ctx.send("Use text or image.")
-            return
-        if style == "image" and not HAS_PIL:
-            await ctx.send("Image charts need Pillow. Install it, then reload the cog.")
-            return
-        await self.config.guild(ctx.guild).image.set(style == "image")
-        await ctx.send(f"New battles use a {style} chart. A live game can still switch from its button.")
 
     @battleship.command(name="ping")
     @commands.admin_or_permissions(manage_guild=True)
@@ -403,26 +387,20 @@ class Battleship(commands.Cog):
             embed.add_field(name="Locking in", value=", ".join(waiting) or "ready", inline=True)
         if session.log:
             embed.add_field(name="Last shots", value="\n".join(session.log[-4:])[:1000], inline=False)
-        if session.phase in ("battle", "done") and not session.image:
-            blocks = []
-            for uid in session.players:
-                fleet = session.fleets.get(uid)
-                shots = session.shots.get(session.opponent(uid), [])
-                ships = None
-                reveal = False
-                if fleet:
-                    ships = [{"cells": s.cells, "sunk": all(c in fleet.hits for c in s.cells), "mark": s.mark} for s in fleet.ships]
-                    reveal = False
-                blocks.append(f"**{session.name(uid)}**\n```\n{text_grid(shots, ships, reveal)}```")
-            embed.add_field(name="Public chart  ·  X hit  ·  o miss", value="\n".join(blocks)[:1024], inline=False)
         embed.set_footer(text="Hulls stay hidden until sunk. My fleet is private.")
         return embed
 
+    async def _chart(self, session: Session, notice: str, reveal: bool) -> discord.File:
+        panels = [self._panel(session, uid, show_hulls=reveal) for uid in session.players]
+        subtitle = notice if session.phase == "done" else f"To fire: {session.name(session.turn)}"
+        png = await asyncio.to_thread(
+            render_boards, panels, "BATTLESHIP", subtitle,
+            "Public chart. Hulls appear only when sunk." if not reveal else "Action complete. Hulls revealed.",
+        )
+        return discord.File(io.BytesIO(png), filename="battleship.png")
+
     async def publish(self, source, session: Session, notice: str) -> None:
         session.touch()
-        if session.image is None and session.phase in ("battle", "done"):
-            session.image = await self.config.guild_from_id(session.guild_id).image()
-        use_image = bool(session.image) and HAS_PIL and session.phase in ("battle", "done")
         view = None
         if session.phase == "deploy":
             view = self.bind(session, DeployChannelView(self, session))
@@ -433,14 +411,8 @@ class Battleship(commands.Cog):
             content = f"<@{session.turn}> your shot."
         embed = self._embed(session, notice)
         file = None
-        if use_image and session.phase in ("battle", "done"):
-            panels = [self._panel(session, uid, show_hulls=False) for uid in session.players]
-            subtitle = notice if session.phase == "done" else f"To fire: {session.name(session.turn)}"
-            png = await asyncio.to_thread(
-                render_boards, panels, "BATTLESHIP", subtitle,
-                "Public chart. Hulls appear only when sunk.",
-            )
-            file = discord.File(io.BytesIO(png), filename="battleship.png")
+        if session.phase in ("battle", "done"):
+            file = await self._chart(session, notice, reveal=session.phase == "done")
             embed.set_image(url="attachment://battleship.png")
         await self._send(source, session, content, embed, view, file)
 
@@ -472,14 +444,9 @@ class Battleship(commands.Cog):
         if session.view:
             session.view.stop()
             session.view = None
-        use_image = bool(session.image) and HAS_PIL
         embed = self._embed(session, reason)
-        file = None
-        if use_image:
-            panels = [self._panel(session, uid, show_hulls=True) for uid in session.players]
-            png = await asyncio.to_thread(render_boards, panels, "BATTLESHIP", reason, "Action complete. Hulls revealed.")
-            file = discord.File(io.BytesIO(png), filename="battleship.png")
-            embed.set_image(url="attachment://battleship.png")
+        file = await self._chart(session, reason, reveal=True)
+        embed.set_image(url="attachment://battleship.png")
         if session.message:
             try:
                 await session.message.edit(
@@ -602,54 +569,37 @@ class Battleship(commands.Cog):
         if not fleet:
             await interaction.response.send_message("Your fleet is not deployed yet.", ephemeral=True)
             return
-        enemy = session.opponent(uid)
-        own_shots = [{"cell": c, "kind": "sunk" if (ship := fleet.ship_at(c)) and all(p in fleet.hits for p in ship.cells) else "hit"} for c in fleet.hits]
         tracking = session.shots.get(uid, [])
-        if HAS_PIL:
-            panels = [
-                self._panel(session, uid, show_hulls=True),
-                {
-                    "heading": "ENEMY WATERS",
-                    "ships": [],
-                    "shots": tracking,
-                    "show_hulls": False,
-                    "accent": (176, 92, 74),
-                    "afloat": "your tracking chart",
-                },
-            ]
-            panels[0]["heading"] = "YOUR FLEET"
-            png = await asyncio.to_thread(
-                render_boards, panels, "BATTLESHIP",
-                f"Private chart · {session.name(uid)}", "Only you can see this.",
-            )
-            file = discord.File(io.BytesIO(png), filename="fleet.png")
-            await interaction.response.send_message(file=file, ephemeral=True)
-            return
-        own = text_grid(own_shots, [{"cells": s.cells, "sunk": all(c in fleet.hits for c in s.cells), "mark": s.mark} for s in fleet.ships], True)
-        track = text_grid(tracking)
-        await interaction.response.send_message(
-            f"**Your fleet**\n```\n{own}```\n**Enemy waters**\n```\n{track}```",
-            ephemeral=True,
+        panels = [
+            self._panel(session, uid, show_hulls=True),
+            {
+                "heading": "ENEMY WATERS",
+                "ships": [],
+                "shots": tracking,
+                "show_hulls": False,
+                "accent": (176, 92, 74),
+                "afloat": "your tracking chart",
+            },
+        ]
+        panels[0]["heading"] = "YOUR FLEET"
+        png = await asyncio.to_thread(
+            render_boards, panels, "BATTLESHIP",
+            f"Private chart · {session.name(uid)}", "Only you can see this.",
         )
+        file = discord.File(io.BytesIO(png), filename="fleet.png")
+        await interaction.response.send_message(file=file, ephemeral=True)
 
     async def _setup_payload(self, session: Session, uid: int):
         fleet = session.fleets[uid]
-        own_shots = [
-            {"cell": c, "kind": "hit"}
-            for c in fleet.hits
-        ]
         ships = [{"cells": s.cells, "sunk": False, "mark": s.mark, "show": True} for s in fleet.ships if s.placed]
-        if HAS_PIL:
-            panel = self._panel(session, uid, show_hulls=True)
-            panel["heading"] = "YOUR FLEET"
-            panel["ships"] = ships or panel["ships"]
-            png = await asyncio.to_thread(
-                render_boards, [panel], "BATTLESHIP",
-                f"Setup · {session.name(uid)}", "Lock in when the fleet looks right. This DM is private.",
-            )
-            return "Arrange the fleet, then lock in.", discord.File(io.BytesIO(png), filename="fleet.png")
-        own = text_grid(own_shots, [{"cells": s.cells, "sunk": False, "mark": s.mark} for s in fleet.ships], True)
-        return f"**Your fleet**\n```\n{own}```\nArrange it, then lock in.", None
+        panel = self._panel(session, uid, show_hulls=True)
+        panel["heading"] = "YOUR FLEET"
+        panel["ships"] = ships or panel["ships"]
+        png = await asyncio.to_thread(
+            render_boards, [panel], "BATTLESHIP",
+            f"Setup · {session.name(uid)}", "Lock in when the fleet looks right. This DM is private.",
+        )
+        return "Arrange the fleet, then lock in.", discord.File(io.BytesIO(png), filename="fleet.png")
 
     async def surrender(self, session: Session, uid: int) -> None:
         await self.finish(session, f"{session.name(uid)} surrendered.", winner=session.opponent(uid))
@@ -925,21 +875,6 @@ class BattleView(discord.ui.View):
     @discord.ui.button(label="My fleet", style=discord.ButtonStyle.secondary, row=2)
     async def mine(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.private_chart(interaction, self.session)
-
-    @discord.ui.button(label="Toggle chart", style=discord.ButtonStyle.secondary, row=3)
-    async def style(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id not in self.session.players:
-            await interaction.response.send_message("You are not in this battle.", ephemeral=True)
-            return
-        if not HAS_PIL:
-            await interaction.response.send_message("Image charts need Pillow.", ephemeral=True)
-            return
-        current = self.session.image
-        if current is None:
-            current = await self.cog.config.guild_from_id(self.session.guild_id).image()
-        self.session.image = not current
-        await interaction.response.defer()
-        await self.cog.publish(interaction, self.session, "Chart style switched.")
 
     @discord.ui.button(label="Surrender", style=discord.ButtonStyle.danger, row=3)
     async def surrender(self, interaction: discord.Interaction, button: discord.ui.Button):

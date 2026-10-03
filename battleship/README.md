@@ -2,20 +2,23 @@
 
 **Author:** SHADOW
 
-Channel battleship for Red. One game per channel, one edited message. Text chart by default. Image chart is optional.
+Channel battleship for Red. One game per channel, one edited image.
 
 The public board is fog of war: hits, misses, and sunk hulls only. **My fleet** opens a private chart with your ships and your tracking grid.
 
 ## Install
 
-Add this folder's parent as a Downloader repo path, or copy `battleship` into a cog path.
+The cog is already in this repo. Downloader will not see a new folder until the repo is updated. `cog install` also needs the repo name, not just the cog name.
 
 ```
-[p]addpath <parent of this folder>
+[p]load downloader
+[p]repo add testing https://github.com/Shadcodez/Red-cog-testing
+[p]repo update testing
+[p]cog install testing battleship
 [p]load battleship
 ```
 
-Pillow is required for image charts. The bot needs Embed Links, and Attach Files if image mode is on.
+Use the name you already gave the repo if it is not `testing`. Pillow is installed by Downloader. The bot needs Embed Links and Attach Files.
 
 ## Use
 
@@ -23,8 +26,6 @@ Pillow is required for image charts. The bot needs Embed Links, and Attach Files
 [p]battleship bot [easy|normal|hard]
 [p]battleship challenge @member
 [p]battleship surrender
-[p]battleship mode text
-[p]battleship mode image
 [p]battleship ping true
 ```
 
