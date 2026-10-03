@@ -1,0 +1,7 @@
+{
+  "author": ["SHADOW"],
+  "description": "Channel chess for Red. Two members, or one member against the built-in Cog-800 engine. The board is one edited message. Image boards are optional.",
+  "install_msg": "Chessmaster by SHADOW is installed. Use [p]chessmaster bot, or [p]chessmaster mode image to turn on picture boards. The bot needs Embed Links, and Attach Files if you use image mode.",
+  "short": "Channel chess vs a member or Cog-800.",
+  "tags": ["chess", "games", "fun"]
+}
