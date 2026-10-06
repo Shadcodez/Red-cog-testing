@@ -1,0 +1,12 @@
+{
+  "author": ["Campaign"],
+  "name": "Witcher",
+  "short": "A dark-fantasy text campaign with saves, DMs, and staff channel gates.",
+  "description": "Original-prose text RPG on the Wild Hunt road: main path, major side contracts, Hearts of Stone, Blood and Wine, and PG-13 fade-to-black romance. Progress is stored on the user id. Server play requires staff to enable each channel.",
+  "install_msg": "Load with [p]load witcher. Staff enable a channel with [p]witcherset enable. Players start with [p]witcher play. Romance fades to black and can move to DMs.",
+  "end_user_data_statement": "Stores Discord user id, quest flags, inventory, resume codes, output mode, and an 18+ opt-in flag in Red config.",
+  "tags": ["game", "rpg", "fun"],
+  "requirements": [],
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 8, 1]
+}
