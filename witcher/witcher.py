@@ -86,19 +86,6 @@ class Witcher(commands.Cog):
     async def red_delete_data_for_user(self, *, requester, user_id: int):
         await self.config.user_from_id(user_id).clear()
 
-    async def cog_load(self):
-        # Slash romance entry is age-restricted by Discord. Prefix play still works.
-        try:
-            self.bot.tree.add_command(self.slash_scene)
-        except Exception:
-            log.warning("Could not register the age-restricted slash command.", exc_info=True)
-
-    async def cog_unload(self):
-        try:
-            self.bot.tree.remove_command("witcher_scene", type=None)
-        except Exception:
-            log.debug("slash command already gone", exc_info=True)
-
     @app_commands.command(name="witcher_scene", description="Continue a fade-to-black scene.", nsfw=True)
     async def slash_scene(self, interaction: discord.Interaction):
         """Age-restricted continue. Discord hides this from accounts that are not adult."""

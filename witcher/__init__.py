@@ -10,4 +10,6 @@ __red_end_user_data_statement__ = (
 
 
 async def setup(bot):
+    # A failed load can leave the slash command on Red's tree. Clear it or the next load dies.
+    bot.tree.remove_command("witcher_scene", type=None)
     await bot.add_cog(Witcher(bot))
