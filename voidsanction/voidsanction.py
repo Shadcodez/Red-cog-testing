@@ -77,6 +77,7 @@ class VoidSanction(DashboardIntegration, Cog):
             ask_delete_days_softban=False,
             ask_delete_days_mute=False,
             default_delete_days=0,
+            channel_cleanup_seconds=10,
             thumbnail="https://i.imgur.com/Bl62rGd.png",
             action_gifs={},
         )
@@ -123,6 +124,10 @@ class VoidSanction(DashboardIntegration, Cog):
             "default_delete_days": {
                 "converter": int,
                 "description": "Fallback days (0-7) used if ask_delete_days is disabled for kick/ban.",
+            },
+            "channel_cleanup_seconds": {
+                "converter": int,
+                "description": "Seconds to wait before deleting the VoidSanction menu and finish embeds in the channel. 0 disables auto-cleanup.",
             },
             "thumbnail": {
                 "converter": str,
@@ -689,7 +694,7 @@ class VoidSanction(DashboardIntegration, Cog):
                 pred = MessagePredicate.valid_member(ctx)
                 msg = await self.bot.wait_for(
                     "message",
-                    timeout=MENU_TIMEOUT_SECONDS,
+                    timeout=30,
                     check=pred,
                 )
                 await CogsUtils.delete_message(message)
@@ -697,9 +702,9 @@ class VoidSanction(DashboardIntegration, Cog):
                 if msg.content.lower() == "cancel":
                     return
                 member = pred.result
-            except TimeoutError:
+            except (TimeoutError, asyncio.TimeoutError):
                 await CogsUtils.delete_message(message)
-                raise commands.UserFeedbackCheckFailure(_("Timed out, please try again."))
+                return
 
         if action is not None:
             await action.process(

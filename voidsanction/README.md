@@ -70,8 +70,10 @@ There is also a user context menu named **Void Sanction**. Enable and sync it wi
 [p]setvoidsanction finishmessage true
 [p]setvoidsanction showauthor true
 [p]setvoidsanction usewarnsystem true
-[p]setvoidsanction thumbnail <url>
+[p]setvoidsanction channelcleanupseconds 10
 ```
+
+`channelcleanupseconds` is how long the menu and finish embeds stay in the channel after an action. `0` disables auto-cleanup. The no-member prompt times out silently after 30 seconds.
 
 When `askdeletedays` is off, kick/ban use `defaultdeletedays` (0–7) with no prompt.
 

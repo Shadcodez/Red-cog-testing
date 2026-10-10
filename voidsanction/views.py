@@ -229,7 +229,7 @@ class VoidSanctionView(discord.ui.View):
             "Kick, ban, and tempban ask how many days of messages to clean (0–7).\n"
             "Mute and softban do the same only if their toggles are enabled.\n"
             "Nullvoid uses the Void cog's own black-hole GIF, purge, and isolate flow.\n"
-            "This menu deletes itself 10 seconds after an action, or after 2.5 minutes if nobody uses it.",
+            "This menu deletes itself after the channel cleanup timer, or after 2.5 minutes if nobody uses it.",
         ).format(member=self.member)
         thumbnail = await self.cog.config.guild(self.ctx.guild).thumbnail()
         if thumbnail:
@@ -299,11 +299,9 @@ class VoidSanctionView(discord.ui.View):
             )
             # Completed or cancelled follow-ups both tear the menu down so
             # leftover buttons cannot be clicked after the fact.
-            if result is True:
-                await self.cleanup(delay=POST_ACTION_CLEANUP_SECONDS)
-            elif result is None:
-                # Prompt cancelled — drop the menu after the same 10s grace.
-                await self.cleanup(delay=POST_ACTION_CLEANUP_SECONDS)
+            if result is not False:
+                delay = await self.cog.config.guild(self.ctx.guild).channel_cleanup_seconds()
+                await self.cleanup(delay=max(int(delay or 0), 0))
             else:
                 self._busy = False
         except Exception:

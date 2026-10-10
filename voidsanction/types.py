@@ -374,6 +374,9 @@ class Action:
                     )
                 except discord.HTTPException:
                     pass
+                delay = await self.cog.config.guild(ctx.guild).channel_cleanup_seconds()
+                if delay and int(delay) > 0:
+                    self.cog.schedule_message_delete([status], int(delay))
 
             if self.key == "softban" and not use_native_softban:
                 command_template = "kick {member.id} {reason}"
@@ -404,6 +407,9 @@ class Action:
                 await finish_message.add_reaction("✅")
             except discord.HTTPException:
                 pass
+            delay = await self.cog.config.guild(ctx.guild).channel_cleanup_seconds()
+            if delay and int(delay) > 0:
+                self.cog.schedule_message_delete([finish_message], int(delay))
         if gif_message is not None:
             self.cog.schedule_message_delete([gif_message], GIF_CLEANUP_SECONDS)
         return True
