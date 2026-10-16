@@ -318,12 +318,6 @@ class CleanupPanelView(ui.LayoutView):
 
             elif action == "bot":
                 number = int(values.get("number", 100))
-                check = lambda m: m.author.bot or (
-                    m.content.startswith(tuple(await self.bot.get_valid_prefixes(interaction.guild)))
-                    if hasattr(self.bot, "get_valid_prefixes")
-                    else m.author.bot
-                )
-                # Simpler: bot messages + command messages if possible
                 check = lambda m: m.author.bot
                 deleted = await self._purge(channel, check, number, delete_pinned)
                 return f"Deleted {deleted} bot message(s) in {channel.mention}."
