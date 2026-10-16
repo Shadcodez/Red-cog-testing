@@ -181,8 +181,8 @@ class CleanupPanelView(ui.LayoutView):
 
         # Info text
         info = ui.TextDisplay(
-            "-# Staff only • Components V2 Containers • "
-            "Slow Mode: ~2.5s delay between deletes • Auto-stops after 5 minutes."
+            "-# Staff only • "
+            "Slow Mode: ~2.5s delay between deletes • Auto-stops after 5 minutes. Beta"
         )
 
         # Container
