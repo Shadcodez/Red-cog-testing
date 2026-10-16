@@ -161,12 +161,19 @@ class EmbedEditorView(discord.ui.View):
     @discord.ui.button(label="To Container", style=discord.ButtonStyle.blurple, emoji="\U0001f4e6", row=2)
     async def to_container_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
-        container = embed_to_container(self.embed)
+        embed = self.embed
+        untouched = (embed.title or "") == DEFAULT_EMBED_TITLE and (embed.description or "").startswith("- Use the grey buttons")
+        if untouched:
+            container = discord.ui.Container(accent_colour=embed.colour or discord.Colour.blurple(), spoiler=False)
+            container.add_item(discord.ui.TextDisplay(f"# {DEFAULT_CONTAINER_TITLE}"))
+            container.add_item(discord.ui.TextDisplay(DEFAULT_CONTAINER_TEXT.replace("[p]", self.context.clean_prefix)))
+        else:
+            container = embed_to_container(embed)
         container_view = ContainerEditorView(self.context, container=container, content=self.content)
         await interaction.response.defer()
         with contextlib.suppress(discord.HTTPException):
             await interaction.message.delete()
-        container_view.message = await self.context.send(view=container_view, content=self.content)
+        container_view.message = await self.context.send(view=container_view)
 
     # Row 3: Python & JSON Exports
     @discord.ui.button(label="Get Python", style=discord.ButtonStyle.blurple, emoji="\U0001f40d", row=3)

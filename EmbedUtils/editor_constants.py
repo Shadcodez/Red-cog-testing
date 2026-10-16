@@ -36,13 +36,16 @@ DEFAULT_EMBED_DESCRIPTION = """
 DEFAULT_CONTAINER_TITLE = "Welcome to the Container Builder"
 
 DEFAULT_CONTAINER_TEXT = """
-### Discord UI Container Builder (Components V2)
-- Use the control buttons below to customize this **Container** in live preview.
-- **Top Row**: Set the accent color, toggle container spoiler mask, configure outside message content, or clear components.
-- **Content Row**: Add markdown **Text Displays**, rich **Sections** with thumbnails or action buttons, **Separators**, or **Media Galleries** (up to 10 images).
-- **Interactive Row**: Add interactive **Link Buttons**, attached **Files**, remove any individual component, or edit existing text blocks.
-- **Export Row**: Export runnable **Python** code or **JSON**, replace JSON, or convert to a legacy **Embed** with one click.
-- **Send**: Pick a channel from the dropdown to post your container.
+### Container tools
+This is a Components V2 container, not an embed. Discord cannot show normal message text with it.
+- **Accent** sets the side colour. **Spoiler** blurs the whole container. **Clear** wipes it. **To Embed** converts it back.
+- **+ Text** adds a markdown block. Headers, bold, lists, and code work.
+- **+ Thumb Sec** puts up to 3 text blocks beside an image. **+ Btn Sec** puts text beside a link button.
+- **+ Divider** is a horizontal line only. **+ Media** adds a gallery image. **+ Link Btn** adds a link, with an optional emoji.
+- **+ File** needs `attachment://filename` for a file already on the message.
+- **Edit / Move** opens a block to change it, moves it up or down, or removes one gallery image.
+- **- Remove** deletes a whole block. **Export** gets Python, JSON, or replaces the container from JSON.
+- The channel menu posts a copy without these buttons.
 """.strip()
 
 
