@@ -8,7 +8,7 @@ Staff-only interactive cleanup panel for Red-DiscordBot using Discord's Componen
 - Buttons for common cleanup actions: Messages, Bot, User, Text, Spam, Self, After, Before, Between
 - Channel selector to run the cleanup in a different channel
 - Toggle for deleting pinned messages
-- **Slow Mode toggle** — deletes messages one-by-one with a moderate ~2.5s delay so it can clean messages older than 14 days (bypasses Discord’s bulk delete limit). Automatically stops after 5 minutes.
+- **Slow Mode** requires a unique tool password (set by server owner/admin via `[p]setcleanuppassword` — the bot DMs them). A password field appears in the modal before Slow Mode runs.
 - Modals to ask for numbers, text, user IDs, or message IDs when needed
 - Respects Discord's rate limits
 - Staff only (requires Manage Messages permission)

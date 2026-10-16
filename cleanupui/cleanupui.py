@@ -19,7 +19,9 @@ log = logging.getLogger("red.cleanupui")
 
 
 class CleanupModal(ui.Modal):
-    """Generic modal for collecting cleanup parameters."""
+    """Generic modal for collecting cleanup parameters.
+    When Slow Mode is active, also collects and verifies the tool password.
+    """
 
     def __init__(
         self,
@@ -27,10 +29,12 @@ class CleanupModal(ui.Modal):
         view: "CleanupPanelView",
         action: str,
         fields: list[tuple[str, str, bool, int]],
+        require_password: bool = False,
     ):
         super().__init__(title=title)
         self.view = view
         self.action = action
+        self.require_password = require_password
         self.field_data = {}
 
         for label, placeholder, required, max_length in fields:
@@ -42,16 +46,49 @@ class CleanupModal(ui.Modal):
                 style=discord.TextStyle.short,
             )
             self.add_item(text_input)
-            # Store reference for later access by label
             setattr(self, f"input_{label.replace(' ', '_').lower()}", text_input)
 
+        if require_password:
+            password_input = ui.TextInput(
+                label="Tool Password",
+                placeholder="Unique CleanupUI password (not a personal password)",
+                required=True,
+                max_length=100,
+                style=discord.TextStyle.short,
+            )
+            self.add_item(password_input)
+
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        # Collect values
         values = {}
+        password_attempt = None
         for item in self.children:
             if isinstance(item, ui.TextInput):
-                key = item.label.replace(" ", "_").lower()
-                values[key] = item.value.strip() if item.value else None
+                if item.label == "Tool Password":
+                    password_attempt = item.value.strip() if item.value else None
+                else:
+                    key = item.label.replace(" ", "_").lower()
+                    values[key] = item.value.strip() if item.value else None
+
+        # Verify password if required
+        if self.require_password:
+            guild = interaction.guild
+            if not guild:
+                await interaction.response.send_message("Guild only.", ephemeral=True)
+                return
+            stored = await self.view.cog.config.guild(guild).password()
+            if not stored:
+                await interaction.response.send_message(
+                    "No Slow Mode password has been set for this server.\n"
+                    "An administrator must use `[p]setcleanuppassword` first.",
+                    ephemeral=True,
+                )
+                return
+            if password_attempt != stored:
+                await interaction.response.send_message(
+                    "Incorrect tool password. Slow Mode action cancelled.",
+                    ephemeral=True,
+                )
+                return
 
         await interaction.response.defer(ephemeral=True)
         try:
@@ -86,7 +123,7 @@ class CleanupPanelView(ui.LayoutView):
             "# 🧹 Staff Cleanup Panel\n"
             "Select a cleanup action below. Most actions will ask for a number of messages.\n"
             "**Normal mode:** Bulk delete (fast, only works on messages < 14 days old).\n"
-            "**Slow mode:** Deletes one-by-one (works on messages of any age). Max 5 minutes runtime."
+            "**Slow mode:** Deletes one-by-one (works on any age). Requires tool password. Max 5 minutes."
         )
 
         # Channel selector section
@@ -253,7 +290,7 @@ class CleanupPanelView(ui.LayoutView):
             await interaction.response.send_message("Unknown action.", ephemeral=True)
             return
 
-        modal = CleanupModal(title, self, action, fields)
+        modal = CleanupModal(title, self, action, fields, require_password=self.slow_mode)
         await interaction.response.send_modal(modal)
 
     async def perform_action(
@@ -521,7 +558,59 @@ class CleanupUI(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=9876543210, force_registration=True)
-        # No config needed for now
+        self.config.register_guild(password=None)
+
+    @commands.command(name="setcleanuppassword", aliases=["cleanupuipassword", "setslowpassword"])
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def set_cleanup_password(self, ctx: commands.Context):
+        """Set or update the password required for Slow Mode (past 14-day cleans).
+
+        Only server owners or administrators can use this.
+        The bot will DM you to set a unique tool password (do not use a personal password).
+        """
+        if not (ctx.author.id == ctx.guild.owner_id or ctx.author.guild_permissions.administrator):
+            await ctx.send("Only the server owner or administrators can set the CleanupUI password.")
+            return
+
+        try:
+            dm_channel = await ctx.author.create_dm()
+            await dm_channel.send(
+                "**CleanupUI Slow Mode Password Setup**\n\n"
+                "Please reply to this DM with a password **unique to this tool**.\n"
+                "**Do not use a personal password.**\n\n"
+                "This password will be required to use Slow Mode (cleaning messages older than 14 days).\n"
+                "You have 90 seconds to reply."
+            )
+
+            def check(m: discord.Message) -> bool:
+                return m.channel.id == dm_channel.id and m.author.id == ctx.author.id
+
+            reply = await self.bot.wait_for("message", check=check, timeout=90)
+            password = reply.content.strip()
+
+            if len(password) < 4:
+                await dm_channel.send("Password must be at least 4 characters. Please try the command again.")
+                return
+            if len(password) > 100:
+                await dm_channel.send("Password too long. Please try the command again.")
+                return
+
+            await self.config.guild(ctx.guild).password.set(password)
+            await dm_channel.send(
+                "✅ Password set successfully for this server.\n"
+                "Remember: this is only for the CleanupUI Slow Mode tool."
+            )
+            await ctx.send("CleanupUI Slow Mode password has been set via DM.")
+        except asyncio.TimeoutError:
+            await ctx.send("Timed out waiting for your reply in DMs. Please try again.")
+        except discord.Forbidden:
+            await ctx.send(
+                "I couldn't send you a DM. Please enable DMs from server members and try again."
+            )
+        except Exception as e:
+            log.exception("Error setting password")
+            await ctx.send(f"An error occurred: {e}")
 
     @commands.command(name="cleanuppanel", aliases=["cleanui", "cleanupui"])
     @commands.guild_only()

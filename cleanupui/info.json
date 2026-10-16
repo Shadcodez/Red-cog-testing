@@ -1,10 +1,10 @@
 {
-    "author": ["shadow"],
-    "description": "Staff-only Cleanup panel using Discord Components V2 Containers for easy message cleanup actions.",
-    "install_msg": "Thanks for installing CleanupUI! Use [p]cleanuppanel to open the staff cleanup interface. Requires manage_messages permission.",
-    "short": "Staff cleanup panel with Discord Containers + optional Slow Mode (bypasses 14-day limit)",
+    "author": ["SHADOW"],
+    "description": "Staff-only Cleanup panel using Discord Components V2 Containers. Slow Mode (past 14 days) requires a unique tool password set by an admin.",
+    "install_msg": "Thanks for installing CleanupUI by SHADOW! Use [p]cleanuppanel to open the staff interface. For Slow Mode (messages older than 14 days), an admin must set a unique tool password with [p]setcleanuppassword.",
+    "short": "Staff cleanup panel with Containers + Slow Mode (2.5s delay, 5min auto-timeout)",
     "tags": ["moderation", "cleanup", "staff", "ui", "containers"],
     "min_bot_version": "3.5.21",
-    "end_user_data_statement": "This cog does not store any end user data.",
+    "end_user_data_statement": "This cog stores a server-specific tool password (set by an admin) for Slow Mode access. No personal user data is stored.",
     "requirements": []
 }
