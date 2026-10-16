@@ -16,6 +16,7 @@ from .converters import (
     ListStringToEmbed,
     MessageableChannel,
     MessageableOrMessageConverter,
+    MessageOrEvent,
     MyMessageConverter,
     PastebinListConverter,
     StringToEmbed,
@@ -383,12 +384,15 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
     async def embed_edit(
         self,
         ctx: commands.Context,
-        message: MyMessageConverter,
+        target: MessageOrEvent,
         source: Optional[str] = None,
         *,
         data: str = None,
     ) -> None:
-        """Edit a bot message from json/yaml/file/url/message, or title + description."""
+        """Edit a bot message, or update a server event, from json/yaml/file/url/message or title + description.
+
+        For an event, pass its link, ID, or exact name. The embed title, description, and image update the event.
+        """
         known = {
             "json", "yaml", "file", "yamlfile", "url", "message",
             "fromjson", "fromdata", "fromyaml", "pastebin", "gist", "hastebin",
@@ -406,7 +410,10 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             }
         else:
             raise commands.BadArgument("Provide a source type or a title and description.")
-        await self.publish(ctx, payload, message)
+        if isinstance(target, discord.ScheduledEvent):
+            await self.update_server_event(ctx, target, payload)
+            return
+        await self.publish(ctx, payload, target)
 
     # ------------------------------------------------------------------
     # Interactive
@@ -835,19 +842,16 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         *,
         description: str = "",
     ) -> None:
-        """Event embed. Set schedule to true to also create a Discord server event.
+        """Event embed. `when` can be `tomorrow 7pm`, `friday 8pm`, `in 2 hours`, or ISO.
 
-        `when` and `end` accept `now` or ISO-8601. External events need a location.
+        Set schedule to true to also create a Discord server event.
         """
-        if when.lower() == "now":
-            moment = datetime.now(timezone.utc)
-        else:
-            try:
-                moment = datetime.fromisoformat(when.replace("Z", "+00:00"))
-            except ValueError as exc:
-                raise commands.BadArgument("Use `now` or an ISO-8601 timestamp.") from exc
-            if moment.tzinfo is None:
-                moment = moment.replace(tzinfo=timezone.utc)
+        from .editor_actions import parse_friendly
+
+        try:
+            moment = parse_friendly(when)
+        except ValueError as exc:
+            raise commands.BadArgument(str(exc)) from exc
         unix = int(moment.timestamp())
         body = f"{description}\n\n<t:{unix}:F> (<t:{unix}:R>)" if description else f"<t:{unix}:F> (<t:{unix}:R>)"
         embed = discord.Embed(
@@ -859,12 +863,12 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         await self.publish(ctx, {"embed": embed}, channel)
         if schedule:
             if end:
+                from .editor_actions import parse_friendly
+
                 try:
-                    end_at = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    end_at = parse_friendly(end, base=moment)
                 except ValueError as exc:
-                    raise commands.BadArgument("End time must be ISO-8601.") from exc
-                if end_at.tzinfo is None:
-                    end_at = end_at.replace(tzinfo=timezone.utc)
+                    raise commands.BadArgument(str(exc)) from exc
             else:
                 end_at = moment + timedelta(hours=1)
             if end_at <= moment:
@@ -886,7 +890,44 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
                 return
             await ctx.send(f"Server event created: {event.url}")
 
-    async def create_server_event(self, guild, *, name, description, start, end, location):
+    async def update_server_event(self, ctx, event: discord.ScheduledEvent, payload: dict) -> None:
+        embed = payload.get("embed")
+        if embed is None:
+            embeds = payload.get("embeds") or []
+            embed = embeds[0] if embeds else None
+        if embed is None:
+            await ctx.send("That source has no embed to apply to the event.")
+            return
+        kwargs = {}
+        if embed.title:
+            kwargs["name"] = embed.title[:100]
+        if embed.description:
+            kwargs["description"] = embed.description[:1000]
+        image_url = getattr(getattr(embed, "image", None), "url", None)
+        if image_url and self.session is not None:
+            try:
+                async with self.session.get(image_url) as response:
+                    if response.status == 200:
+                        kwargs["image"] = await response.read()
+            except aiohttp.ClientError:
+                pass
+        if not kwargs:
+            await ctx.send("The embed has no title, description, or image to update.")
+            return
+        try:
+            updated = await event.edit(**kwargs)
+        except discord.Forbidden:
+            await ctx.send("I need Manage Events to update that server event.")
+            return
+        except discord.HTTPException as error:
+            await ctx.send(f"Discord rejected the event update: {error}")
+            return
+        await ctx.send(f"Updated server event: {updated.url}")
+
+    async def create_server_event(self, guild, *, name, description, start, end, location, image=None):
+        kwargs = {}
+        if image:
+            kwargs["image"] = image
         return await guild.create_scheduled_event(
             name=name,
             description=description,
@@ -895,6 +936,7 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             entity_type=discord.EntityType.external,
             location=location or "Discord",
             privacy_level=discord.PrivacyLevel.guild_only,
+            **kwargs,
         )
 
     @embed.command(name="dashboard")

@@ -227,6 +227,48 @@ class GlobalStoredEmbedConverter(commands.Converter):
         return result
 
 
+EVENT_URL_RE = re.compile(r"discord(?:app)?\.com/events/(\d+)/(\d+)")
+
+
+class ScheduledEventConverter(commands.Converter):
+    async def convert(self, ctx: commands.Context, argument: str) -> discord.ScheduledEvent:
+        if ctx.guild is None:
+            raise commands.BadArgument("Server events only work in a server.")
+        raw = argument.strip()
+        if raw.lower().startswith("event:"):
+            raw = raw.split(":", 1)[1].strip()
+        match = EVENT_URL_RE.search(raw)
+        event_id = int(match.group(2)) if match else None
+        if event_id is None and raw.isdigit():
+            event_id = int(raw)
+        if event_id is not None:
+            try:
+                return await ctx.guild.fetch_scheduled_event(event_id)
+            except discord.NotFound as exc:
+                raise commands.BadArgument("That server event was not found.") from exc
+        events = await ctx.guild.fetch_scheduled_events()
+        found = [event for event in events if event.name.lower() == raw.lower()]
+        if len(found) == 1:
+            return found[0]
+        if not found:
+            raise commands.BadArgument("No server event with that name, ID, or link.")
+        raise commands.BadArgument("More than one event has that name. Use the event link.")
+
+
+class MessageOrEvent(commands.Converter):
+    async def convert(self, ctx: commands.Context, argument: str):
+        text = argument.strip()
+        if "discord.com/events/" in text or text.lower().startswith("event:"):
+            return await ScheduledEventConverter().convert(ctx, text)
+        try:
+            return await MyMessageConverter().convert(ctx, text)
+        except commands.BadArgument as message_error:
+            try:
+                return await ScheduledEventConverter().convert(ctx, text)
+            except commands.BadArgument:
+                raise message_error
+
+
 class MyMessageConverter(commands.MessageConverter):
     async def convert(self, ctx: commands.Context, argument: str) -> discord.Message:
         message = await super().convert(ctx, argument)
