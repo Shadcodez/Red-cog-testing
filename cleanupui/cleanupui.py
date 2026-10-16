@@ -160,6 +160,7 @@ class CleanupPanelView(ui.LayoutView):
             custom_id="cleanup_toggle_pinned",
         )
         toggle_btn.callback = self.toggle_pinned
+        self.pinned_button = toggle_btn
         row3.add_item(toggle_btn)
 
         slow_btn = ui.Button(
@@ -168,6 +169,7 @@ class CleanupPanelView(ui.LayoutView):
             custom_id="cleanup_toggle_slow",
         )
         slow_btn.callback = self.toggle_slow
+        self.slow_button = slow_btn
         row3.add_item(slow_btn)
 
         # After building rows, assign callbacks properly
@@ -224,22 +226,22 @@ class CleanupPanelView(ui.LayoutView):
                 "Target channel cleared. Will use current channel.", ephemeral=True
             )
 
-    async def toggle_pinned(self, interaction: discord.Interaction, button: ui.Button) -> None:
+    async def toggle_pinned(self, interaction: discord.Interaction) -> None:
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("This panel is not for you.", ephemeral=True)
             return
         self.delete_pinned = not self.delete_pinned
-        button.label = f"Delete Pinned: {'On' if self.delete_pinned else 'Off'}"
-        button.style = discord.ButtonStyle.success if self.delete_pinned else discord.ButtonStyle.danger
+        self.pinned_button.label = f"Delete Pinned: {'On' if self.delete_pinned else 'Off'}"
+        self.pinned_button.style = discord.ButtonStyle.success if self.delete_pinned else discord.ButtonStyle.danger
         await interaction.response.edit_message(view=self)
 
-    async def toggle_slow(self, interaction: discord.Interaction, button: ui.Button) -> None:
+    async def toggle_slow(self, interaction: discord.Interaction) -> None:
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("This panel is not for you.", ephemeral=True)
             return
         self.slow_mode = not self.slow_mode
-        button.label = f"Slow Mode: {'On' if self.slow_mode else 'Off'}"
-        button.style = discord.ButtonStyle.success if self.slow_mode else discord.ButtonStyle.secondary
+        self.slow_button.label = f"Slow Mode: {'On' if self.slow_mode else 'Off'}"
+        self.slow_button.style = discord.ButtonStyle.success if self.slow_mode else discord.ButtonStyle.secondary
         await interaction.response.edit_message(view=self)
 
     def _create_action_callback(self, action: str):
