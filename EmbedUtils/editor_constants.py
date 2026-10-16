@@ -24,7 +24,7 @@ DEFAULT_EMBED_DESCRIPTION = """
   - **image** - A valid URL for the embed's image.
   - **thumbnail** - A valid URL for the embed's thumbnail.
   - **author_name** - The name of the embed's author.
-  - **author_url** - A valid URL for the author's hyperlink. 
+  - **author_url** - A valid URL for the author's hyperlink.
   - **author_icon_url** - A valid URL for the author's icon image.
   - **footer_name** - Text for the footer.
   - **footer_icon_url** - A valid URL for the footer's icon image.

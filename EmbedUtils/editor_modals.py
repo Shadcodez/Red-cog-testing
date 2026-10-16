@@ -316,6 +316,13 @@ class EmbedFieldAdder(ModalBase):
 # ==============================================================================
 
 
+def _media_url(item) -> str:
+    media = getattr(item, "media", None)
+    if isinstance(media, str):
+        return media
+    return getattr(media, "url", "") or ""
+
+
 class ContainerAccentColourModal(ModalBase):
     def __init__(self, view: ContainerEditorView, *, context: Context):
         super().__init__(view, title="Set Container Accent Colour")
@@ -388,87 +395,122 @@ class ContainerTextDisplayModal(ModalBase):
 
 
 class ContainerSectionThumbnailModal(ModalBase):
-    def __init__(self, view: ContainerEditorView):
-        super().__init__(view, title="Add Section with Thumbnail")
-
+    def __init__(self, view: ContainerEditorView, section: Optional[discord.ui.Section] = None):
+        super().__init__(view, title="Edit Thumbnail Section" if section else "Add Section with Thumbnail")
+        self.section = section
+        texts = [child.content for child in getattr(section, "children", []) if isinstance(child, discord.ui.TextDisplay)] if section else []
+        accessory = getattr(section, "accessory", None)
         self.section_text = discord.ui.TextInput(
-            label="Section Text",
+            label="Section text 1",
             style=discord.TextStyle.long,
-            placeholder="Accompanying text displayed beside the thumbnail...",
+            default=texts[0] if texts else "",
             required=True,
+            max_length=2000,
+        )
+        self.section_text_2 = discord.ui.TextInput(
+            label="Section text 2 (optional)",
+            style=discord.TextStyle.short,
+            default=texts[1] if len(texts) > 1 else "",
+            required=False,
+            max_length=2000,
+        )
+        self.section_text_3 = discord.ui.TextInput(
+            label="Section text 3 (optional)",
+            style=discord.TextStyle.short,
+            default=texts[2] if len(texts) > 2 else "",
+            required=False,
             max_length=2000,
         )
         self.thumb_url = discord.ui.TextInput(
             label="Thumbnail URL or attachment",
             style=discord.TextStyle.short,
+            default=_media_url(accessory),
             placeholder="https://... or attachment://filename.png",
             required=True,
         )
-        self.thumb_desc = discord.ui.TextInput(
-            label="Thumbnail Alt Text Description",
-            style=discord.TextStyle.short,
-            placeholder="Optional alt text description",
-            required=False,
-            max_length=256,
-        )
         self.thumb_spoiler = discord.ui.TextInput(
-            label="Thumbnail Spoiler (true/false)",
+            label="Spoiler true/false",
             style=discord.TextStyle.short,
-            default="false",
+            default="true" if getattr(accessory, "spoiler", False) else "false",
             required=False,
             max_length=5,
         )
 
     async def edit_target(self, container: discord.ui.Container):
-        spoiler_val = self.thumb_spoiler.value.strip().lower() == "true"
+        texts = [self.section_text.value, self.section_text_2.value, self.section_text_3.value]
+        displays = [discord.ui.TextDisplay(text) for text in texts if text.strip()]
         thumb = discord.ui.Thumbnail(
             media=self.thumb_url.value.strip(),
-            description=self.thumb_desc.value.strip() or None,
-            spoiler=spoiler_val,
+            description=getattr(getattr(self.section, "accessory", None), "description", None),
+            spoiler=self.thumb_spoiler.value.strip().lower() == "true",
         )
-        section = discord.ui.Section(
-            discord.ui.TextDisplay(self.section_text.value),
-            accessory=thumb,
-        )
-        container.add_item(section)
+        if self.section is not None:
+            self.section.clear_items()
+            for display in displays:
+                self.section.add_item(display)
+            self.section.accessory = thumb
+            return
+        container.add_item(discord.ui.Section(*displays, accessory=thumb))
 
 
 class ContainerSectionButtonModal(ModalBase):
-    def __init__(self, view: ContainerEditorView):
-        super().__init__(view, title="Add Section with Button")
-
+    def __init__(self, view: ContainerEditorView, section: Optional[discord.ui.Section] = None):
+        super().__init__(view, title="Edit Button Section" if section else "Add Section with Button")
+        self.section = section
+        texts = [child.content for child in getattr(section, "children", []) if isinstance(child, discord.ui.TextDisplay)] if section else []
+        button = getattr(section, "accessory", None)
         self.section_text = discord.ui.TextInput(
-            label="Section Text",
+            label="Section text 1",
             style=discord.TextStyle.long,
-            placeholder="Text displayed beside the button...",
+            default=texts[0] if texts else "",
             required=True,
+            max_length=2000,
+        )
+        self.section_text_2 = discord.ui.TextInput(
+            label="Section text 2 (optional)",
+            style=discord.TextStyle.short,
+            default=texts[1] if len(texts) > 1 else "",
+            required=False,
+            max_length=2000,
+        )
+        self.section_text_3 = discord.ui.TextInput(
+            label="Section text 3 (optional)",
+            style=discord.TextStyle.short,
+            default=texts[2] if len(texts) > 2 else "",
+            required=False,
             max_length=2000,
         )
         self.btn_label = discord.ui.TextInput(
             label="Button Label",
             style=discord.TextStyle.short,
-            placeholder="Click Here",
+            default=getattr(button, "label", "") or "",
             required=True,
             max_length=80,
         )
         self.btn_url = discord.ui.TextInput(
             label="Button Destination URL",
             style=discord.TextStyle.short,
-            placeholder="https://example.com",
+            default=getattr(button, "url", "") or "",
             required=True,
         )
 
     async def edit_target(self, container: discord.ui.Container):
+        texts = [self.section_text.value, self.section_text_2.value, self.section_text_3.value]
+        displays = [discord.ui.TextDisplay(text) for text in texts if text.strip()]
         btn = discord.ui.Button(
             label=self.btn_label.value.strip(),
             url=self.btn_url.value.strip(),
             style=discord.ButtonStyle.link,
+            emoji=getattr(getattr(self.section, "accessory", None), "emoji", None),
+            disabled=getattr(getattr(self.section, "accessory", None), "disabled", False),
         )
-        section = discord.ui.Section(
-            discord.ui.TextDisplay(self.section_text.value),
-            accessory=btn,
-        )
-        container.add_item(section)
+        if self.section is not None:
+            self.section.clear_items()
+            for display in displays:
+                self.section.add_item(display)
+            self.section.accessory = btn
+            return
+        container.add_item(discord.ui.Section(*displays, accessory=btn))
 
 
 class ContainerSeparatorModal(ModalBase):
@@ -505,26 +547,27 @@ class ContainerSeparatorModal(ModalBase):
 
 
 class ContainerMediaGalleryModal(ModalBase):
-    def __init__(self, view: ContainerEditorView):
-        super().__init__(view, title="Add Image to Media Gallery")
-
+    def __init__(self, view: ContainerEditorView, item=None):
+        super().__init__(view, title="Edit Gallery Image" if item else "Add Image to Media Gallery")
+        self.item = item
         self.media_url = discord.ui.TextInput(
             label="Image / Media URL",
             style=discord.TextStyle.short,
+            default=_media_url(item),
             placeholder="https://example.com/image.png",
             required=True,
         )
         self.media_desc = discord.ui.TextInput(
             label="Description (Alt Text)",
             style=discord.TextStyle.short,
-            placeholder="Optional description",
+            default=getattr(item, "description", "") or "",
             required=False,
             max_length=256,
         )
         self.media_spoiler = discord.ui.TextInput(
             label="Spoiler (true/false)",
             style=discord.TextStyle.short,
-            default="false",
+            default="true" if getattr(item, "spoiler", False) else "false",
             required=False,
             max_length=5,
         )
@@ -532,6 +575,11 @@ class ContainerMediaGalleryModal(ModalBase):
     async def edit_target(self, container: discord.ui.Container):
         spoiler = self.media_spoiler.value.strip().lower() == "true"
         desc = self.media_desc.value.strip() or None
+        if self.item is not None:
+            self.item.media = self.media_url.value.strip()
+            self.item.description = desc
+            self.item.spoiler = spoiler
+            return
         item = discord.MediaGalleryItem(
             media=self.media_url.value.strip(),
             description=desc,
@@ -555,41 +603,42 @@ class ContainerMediaGalleryModal(ModalBase):
 
 
 class ContainerFileModal(ModalBase):
-    def __init__(self, view: ContainerEditorView):
-        super().__init__(view, title="Add File Component")
-
+    def __init__(self, view: ContainerEditorView, item: Optional[discord.ui.File] = None):
+        super().__init__(view, title="Edit File" if item else "Add File Component")
+        self.item = item
         self.file_media = discord.ui.TextInput(
             label="File Media Reference",
             style=discord.TextStyle.short,
-            default="attachment://",
+            default=_media_url(item) or "attachment://",
             placeholder="attachment://filename.ext or URL",
             required=True,
         )
         self.file_spoiler = discord.ui.TextInput(
             label="File Spoiler (true/false)",
             style=discord.TextStyle.short,
-            default="false",
+            default="true" if getattr(item, "spoiler", False) else "false",
             required=False,
             max_length=5,
         )
 
     async def edit_target(self, container: discord.ui.Container):
         spoiler = self.file_spoiler.value.strip().lower() == "true"
-        container.add_item(
-            discord.ui.File(
-                media=self.file_media.value.strip(),
-                spoiler=spoiler,
-            )
-        )
+        media = self.file_media.value.strip()
+        if self.item is not None:
+            self.item.media = media
+            self.item.spoiler = spoiler
+            return
+        container.add_item(discord.ui.File(media=media, spoiler=spoiler))
 
 
 class ContainerLinkButtonModal(ModalBase):
-    def __init__(self, view: ContainerEditorView):
-        super().__init__(view, title="Add Link Button inside Container")
-
+    def __init__(self, view: ContainerEditorView, button: Optional[discord.ui.Button] = None):
+        super().__init__(view, title="Edit Link Button" if button else "Add Link Button inside Container")
+        self.button = button
         self.btn_label = discord.ui.TextInput(
             label="Button Label",
             style=discord.TextStyle.short,
+            default=getattr(button, "label", "") or "",
             placeholder="Visit Website",
             required=True,
             max_length=80,
@@ -597,25 +646,45 @@ class ContainerLinkButtonModal(ModalBase):
         self.btn_url = discord.ui.TextInput(
             label="Button Destination URL",
             style=discord.TextStyle.short,
+            default=getattr(button, "url", "") or "",
             placeholder="https://example.com",
             required=True,
         )
+        self.btn_emoji = discord.ui.TextInput(
+            label="Emoji (optional)",
+            style=discord.TextStyle.short,
+            default=str(getattr(button, "emoji", "") or ""),
+            required=False,
+            max_length=64,
+        )
+        self.btn_disabled = discord.ui.TextInput(
+            label="Disabled true/false",
+            style=discord.TextStyle.short,
+            default="true" if getattr(button, "disabled", False) else "false",
+            required=False,
+            max_length=5,
+        )
 
     async def edit_target(self, container: discord.ui.Container):
+        emoji = self.btn_emoji.value.strip() or None
         btn = discord.ui.Button(
             label=self.btn_label.value.strip(),
             url=self.btn_url.value.strip(),
             style=discord.ButtonStyle.link,
+            emoji=emoji,
+            disabled=self.btn_disabled.value.strip().lower() == "true",
         )
-
-        # Find existing ActionRow inside container with < 5 buttons, or add new ActionRow
+        if self.button is not None:
+            self.button.label = btn.label
+            self.button.url = btn.url
+            self.button.emoji = btn.emoji
+            self.button.disabled = btn.disabled
+            return
         target_row = None
         for child in reversed(container.children):
-            if isinstance(child, discord.ui.ActionRow):
-                if len(child.children) < 5:
-                    target_row = child
+            if isinstance(child, discord.ui.ActionRow) and len(child.children) < 5:
+                target_row = child
                 break
-
         if target_row is not None:
             target_row.add_item(btn)
         else:

@@ -397,43 +397,110 @@ class ContainerItemRemoverView(discord.ui.View):
                 await self.message.delete()
 
 
-class ContainerTextEditorSelect(discord.ui.Select):
-    def __init__(self, view: ContainerEditorView, /):
+class ContainerManageSelect(discord.ui.Select):
+    def __init__(self, view: ContainerEditorView):
         options = []
-        self.text_displays: list[discord.ui.TextDisplay] = []
-
-        for child in view.container.children:
-            if isinstance(child, discord.ui.TextDisplay):
-                self.text_displays.append(child)
-                idx = len(self.text_displays) - 1
-                options.append(
-                    discord.SelectOption(
-                        label=f"Text #{idx + 1}",
-                        description=shorten_by(child.content, 100),
-                        value=str(idx),
+        for index, child in enumerate(view.container.children[:25]):
+            if isinstance(child, discord.ui.MediaGallery):
+                items = getattr(child, "items", getattr(child, "children", []))
+                for item_index, item in enumerate(items[:5]):
+                    options.append(
+                        discord.SelectOption(
+                            label=f"{index + 1}. Gallery image {item_index + 1}",
+                            description=shorten_by(getattr(item, "description", "") or "Image", 100),
+                            value=f"{index}:{item_index}",
+                        )
                     )
-                )
-
-        super().__init__(placeholder="Select a text display to edit", options=options)
+                continue
+            label = child.__class__.__name__
+            desc = child.content if isinstance(child, discord.ui.TextDisplay) else label
+            options.append(discord.SelectOption(label=f"{index + 1}. {label}", description=shorten_by(str(desc), 100), value=str(index)))
+        super().__init__(placeholder="Pick a block to edit or move", options=options[:25] or [discord.SelectOption(label="Empty", value="0")])
         self.editor_view = view
+        self.disabled = not options
 
     async def callback(self, interaction: discord.Interaction):
-        idx = int(self.values[0])
-        if 0 <= idx < len(self.text_displays):
-            item = self.text_displays[idx]
-            await interaction.response.send_modal(ContainerTextDisplayModal(self.editor_view, item_to_edit=item))
+        raw = self.values[0]
+        if ":" in raw:
+            index, item_index = (int(part) for part in raw.split(":", 1))
+            self.view.selected = index
+            self.view.gallery_index = item_index
+            child = self.editor_view.container.children[index]
+            items = getattr(child, "items", getattr(child, "children", []))
+            await interaction.response.send_modal(ContainerMediaGalleryModal(self.editor_view, items[item_index]))
+            return
+        self.view.selected = int(raw)
+        self.view.gallery_index = 0
+        child = self.editor_view.container.children[self.view.selected]
+        modal = _modal_for(self.editor_view, child)
+        if modal is None:
+            await interaction.response.send_message("Use the arrows to move this block.", ephemeral=True)
+            return
+        await interaction.response.send_modal(modal)
 
 
-class ContainerTextEditorSelectView(discord.ui.View):
+def _modal_for(view, child):
+    if isinstance(child, discord.ui.TextDisplay):
+        return ContainerTextDisplayModal(view, item_to_edit=child)
+    if isinstance(child, discord.ui.Section):
+        if isinstance(getattr(child, "accessory", None), discord.ui.Thumbnail):
+            return ContainerSectionThumbnailModal(view, child)
+        return ContainerSectionButtonModal(view, child)
+    if isinstance(child, discord.ui.File):
+        return ContainerFileModal(view, child)
+    if isinstance(child, discord.ui.ActionRow) and child.children:
+        return ContainerLinkButtonModal(view, child.children[0])
+    if isinstance(child, discord.ui.MediaGallery):
+        items = getattr(child, "items", getattr(child, "children", []))
+        if items:
+            return ContainerMediaGalleryModal(view, items[0])
+    if isinstance(child, discord.ui.Separator):
+        return ContainerSeparatorModal(view)
+    return None
+
+
+class ContainerManageView(discord.ui.View):
     def __init__(self, view: ContainerEditorView):
-        super().__init__(timeout=30)
-        self.add_item(ContainerTextEditorSelect(view))
-        self.message: Optional[discord.Message] = None
+        super().__init__(timeout=60)
+        self.editor_view = view
+        self.selected = 0
+        self.gallery_index = 0
+        self.add_item(ContainerManageSelect(view))
 
-    async def on_timeout(self):
-        with contextlib.suppress(discord.HTTPException):
-            if self.message:
-                await self.message.delete()
+    async def _move(self, interaction: discord.Interaction, delta: int):
+        children = self.editor_view.container.children
+        index = self.selected
+        target = index + delta
+        if not children or not 0 <= target < len(children):
+            await interaction.response.send_message("That block cannot move further.", ephemeral=True)
+            return
+        children[index], children[target] = children[target], children[index]
+        self.selected = target
+        await self.editor_view.message.edit(view=self.editor_view, content=None)
+        await interaction.response.send_message("Moved.", ephemeral=True)
+
+    @discord.ui.button(label="Up", style=discord.ButtonStyle.secondary)
+    async def up(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._move(interaction, -1)
+
+    @discord.ui.button(label="Down", style=discord.ButtonStyle.secondary)
+    async def down(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._move(interaction, 1)
+
+    @discord.ui.button(label="Remove image", style=discord.ButtonStyle.red)
+    async def remove_image(self, interaction: discord.Interaction, button: discord.ui.Button):
+        child = self.editor_view.container.children[self.selected]
+        if not isinstance(child, discord.ui.MediaGallery):
+            await interaction.response.send_message("Pick a gallery first.", ephemeral=True)
+            return
+        items = getattr(child, "items", getattr(child, "children", []))
+        index = min(self.gallery_index, len(items) - 1)
+        if len(items) <= 1:
+            self.editor_view.container.remove_item(child)
+        else:
+            items.pop(index)
+        await self.editor_view.message.edit(view=self.editor_view, content=None)
+        await interaction.response.send_message("Removed that gallery image.", ephemeral=True)
 
 
 class ContainerEditorView(discord.ui.LayoutView):
@@ -530,7 +597,7 @@ class ContainerEditorView(discord.ui.LayoutView):
         btn_remove.callback = self._on_remove_item_button
         row3.add_item(btn_remove)
 
-        btn_edit_text = discord.ui.Button(label="Edit Text", style=discord.ButtonStyle.blurple, emoji="\u270f\ufe0f")
+        btn_edit_text = discord.ui.Button(label="Edit / Move", style=discord.ButtonStyle.blurple, emoji="\u270f\ufe0f")
         btn_edit_text.callback = self._on_edit_text_button
         row3.add_item(btn_edit_text)
 
@@ -640,12 +707,9 @@ class ContainerEditorView(discord.ui.LayoutView):
         view.message = await interaction.original_response()
 
     async def _on_edit_text_button(self, interaction: discord.Interaction):
-        has_text = any(isinstance(c, discord.ui.TextDisplay) for c in self.container.children)
-        if not has_text:
-            return await interaction.response.send_message("There are no text displays to edit.", ephemeral=True)
-        view = ContainerTextEditorSelectView(self)
-        await interaction.response.send_message(view=view, ephemeral=True)
-        view.message = await interaction.original_response()
+        if not self.container.children:
+            return await interaction.response.send_message("There is nothing to edit yet.", ephemeral=True)
+        await interaction.response.send_message("Pick a block to edit it. Use Up or Down to reorder. Remove image drops the first image in a gallery.", view=ContainerManageView(self), ephemeral=True)
 
     async def _on_export_menu_button(self, interaction: discord.Interaction):
         export_view = discord.ui.View(timeout=60)

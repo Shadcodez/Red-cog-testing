@@ -55,7 +55,12 @@ ZONE_ALIASES = {
 }
 
 
-def parse_zone(raw: str):
+def is_placeholder(embed: discord.Embed) -> bool:
+    title = (embed.title or "").strip()
+    description = (embed.description or "").strip()
+    return title in {"", "Untitled embed", "Welcome to the embed builder"} and (
+        not description or description.startswith("Use the buttons below") or description.startswith("- Use the grey buttons")
+    )
     """Accept IANA names, city names, common abbreviations, or a numeric offset."""
     text = (raw or "").strip()
     if not text or text.lower() in {"skip", "utc"}:
@@ -307,6 +312,13 @@ class EventSetup:
             return
         destination = self._channel(post_msg.content)
 
+        confirm = await self.ask(
+            "Are you sure you want to create this event? Have you finished editing the embed above first? Reply `yes` to create it, or `no` to cancel."
+        )
+        if confirm is None or confirm.content.lower() not in {"yes", "y"}:
+            await self.channel.send("Event setup cancelled. Edit the embed, then click Server event again.")
+            return
+
         try:
             event = await self.cog.create_server_event(
                 self.guild,
@@ -452,6 +464,12 @@ class EventUpdate:
                 kwargs["location"] = loc_msg.content.strip()[:100]
         if not kwargs:
             await self.channel.send("Nothing to update.")
+            return
+        confirm = await self.ask(
+            "Are you sure you want to update this event? Have you finished editing the embed above first? Reply `yes` to update it, or `no` to cancel."
+        )
+        if confirm is None or confirm.content.lower() not in {"yes", "y"}:
+            await self.channel.send("Event update cancelled.")
             return
         try:
             updated = await event.edit(**kwargs)
