@@ -179,6 +179,8 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             await dest.send(**payload, allowed_mentions=mentions)
         except discord.HTTPException as error:
             await StringToEmbed.embed_convert_error(ctx, "Embed Sending Error", error)
+        except (aiohttp.ClientError, OSError) as error:
+            await ctx.send(f"Discord could not be reached ({error.__class__.__name__}). This is a network or DNS problem on the bot host, not the embed. Try again in a minute.")
 
     async def _webhook_send(
         self,

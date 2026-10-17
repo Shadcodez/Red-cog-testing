@@ -61,6 +61,9 @@ def is_placeholder(embed: discord.Embed) -> bool:
     return title in {"", "Untitled embed", "Welcome to the embed builder"} and (
         not description or description.startswith("Use the buttons below") or description.startswith("- Use the grey buttons")
     )
+
+
+def parse_zone(raw: str):
     """Accept IANA names, city names, common abbreviations, or a numeric offset."""
     text = (raw or "").strip()
     if not text or text.lower() in {"skip", "utc"}:
@@ -81,8 +84,8 @@ def is_placeholder(embed: discord.Embed) -> bool:
         minutes = int(match.group(3) or 0)
         return timezone(timedelta(hours=sign * hours, minutes=sign * minutes))
     raise ValueError(
-        "Use an IANA zone like `Europe/Paris` or `Asia/Tokyo`, a city like `London`, "
-        "or an offset like `+5:30`."
+        "Use an IANA zone like `Europe/Paris` or `Asia/Tokyo`, a city like `London` or `Chicago`, "
+        "an abbreviation like `EST`, or an offset like `+5:30`."
     )
 
 
@@ -231,10 +234,15 @@ class EventSetup:
         self.guild = interaction.guild
 
     async def ask(self, prompt: str) -> Optional[discord.Message]:
-        await self.channel.send(prompt)
+        sent = await self.channel.send(prompt)
+        def check(message: discord.Message) -> bool:
+            return message.author.id == self.user.id and message.channel.id == getattr(self.channel, "id", None) and message.id > sent.id
         try:
-            return await self.cog.bot.wait_for("message", check=self._check, timeout=180)
+            return await self.cog.bot.wait_for("message", check=check, timeout=180)
         except asyncio.TimeoutError:
+            async for message in self.channel.history(limit=6, after=sent):
+                if message.author.id == self.user.id:
+                    return message
             await self.channel.send("Timed out. Event setup cancelled.")
             return None
 
@@ -267,6 +275,10 @@ class EventSetup:
         except ValueError as error:
             await self.channel.send(str(error))
             return
+        except Exception as error:
+            await self.channel.send(f"Could not read that timezone: {error}")
+            return
+        await self.channel.send(f"Using `{getattr(zone, 'key', zone)}` for the times below.")
 
         start_msg = await self.ask(
             "**3/6 Start.** Reply like `tomorrow 7pm`, `friday 8:30pm`, `in 2 hours`, or `10/20 7pm`."
@@ -378,10 +390,15 @@ class EventUpdate:
         return message.author.id == self.user.id and message.channel.id == getattr(self.channel, "id", None)
 
     async def ask(self, prompt: str) -> Optional[discord.Message]:
-        await self.channel.send(prompt)
+        sent = await self.channel.send(prompt)
+        def check(message: discord.Message) -> bool:
+            return message.author.id == self.user.id and message.channel.id == getattr(self.channel, "id", None) and message.id > sent.id
         try:
-            return await self.cog.bot.wait_for("message", check=self._check, timeout=180)
+            return await self.cog.bot.wait_for("message", check=check, timeout=180)
         except asyncio.TimeoutError:
+            async for message in self.channel.history(limit=6, after=sent):
+                if message.author.id == self.user.id:
+                    return message
             await self.channel.send("Timed out. Event update cancelled.")
             return None
 
@@ -438,6 +455,7 @@ class EventUpdate:
             except ValueError as error:
                 await self.channel.send(str(error))
                 return
+            await self.channel.send(f"Using `{getattr(zone, 'key', zone)}` for the times below.")
             start_msg = await self.ask("New start? `tomorrow 7pm`, `friday 8pm`, `in 2 hours`, or `skip` to keep it.")
             if start_msg is None or start_msg.content.lower() == "cancel":
                 return

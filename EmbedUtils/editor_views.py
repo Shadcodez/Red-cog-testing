@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Optional
@@ -419,6 +420,16 @@ class ContainerManageSelect(discord.ui.Select):
                         )
                     )
                 continue
+            if isinstance(child, discord.ui.ActionRow):
+                for button_index, button in enumerate(child.children[:5]):
+                    options.append(
+                        discord.SelectOption(
+                            label=f"{index + 1}. Button {button_index + 1}",
+                            description=shorten_by(getattr(button, "label", "") or "Link button", 100),
+                            value=f"{index}:b{button_index}",
+                        )
+                    )
+                continue
             label = child.__class__.__name__
             desc = child.content if isinstance(child, discord.ui.TextDisplay) else label
             options.append(discord.SelectOption(label=f"{index + 1}. {label}", description=shorten_by(str(desc), 100), value=str(index)))
@@ -429,10 +440,16 @@ class ContainerManageSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         raw = self.values[0]
         if ":" in raw:
-            index, item_index = (int(part) for part in raw.split(":", 1))
+            index, rest = raw.split(":", 1)
+            index = int(index)
             self.view.selected = index
-            self.view.gallery_index = item_index
             child = self.editor_view.container.children[index]
+            if rest.startswith("b"):
+                button = child.children[int(rest[1:])]
+                await interaction.response.send_modal(ContainerLinkButtonModal(self.editor_view, button))
+                return
+            item_index = int(rest)
+            self.view.gallery_index = item_index
             items = getattr(child, "items", getattr(child, "children", []))
             await interaction.response.send_modal(ContainerMediaGalleryModal(self.editor_view, items[item_index]))
             return
@@ -462,7 +479,7 @@ def _modal_for(view, child):
         if items:
             return ContainerMediaGalleryModal(view, items[0])
     if isinstance(child, discord.ui.Separator):
-        return ContainerSeparatorModal(view)
+        return ContainerSeparatorModal(view, child)
     return None
 
 
@@ -475,13 +492,15 @@ class ContainerManageView(discord.ui.View):
         self.add_item(ContainerManageSelect(view))
 
     async def _move(self, interaction: discord.Interaction, delta: int):
-        children = self.editor_view.container.children
+        container = self.editor_view.container
+        children = getattr(container, "_children", None) or container.children
         index = self.selected
         target = index + delta
         if not children or not 0 <= target < len(children):
             await interaction.response.send_message("That block cannot move further.", ephemeral=True)
             return
-        children[index], children[target] = children[target], children[index]
+        item = children.pop(index)
+        children.insert(target, item)
         self.selected = target
         await self.editor_view.message.edit(view=self.editor_view, content=None)
         await interaction.response.send_message("Moved.", ephemeral=True)
@@ -500,12 +519,18 @@ class ContainerManageView(discord.ui.View):
         if not isinstance(child, discord.ui.MediaGallery):
             await interaction.response.send_message("Pick a gallery first.", ephemeral=True)
             return
-        items = getattr(child, "items", getattr(child, "children", []))
-        index = min(self.gallery_index, len(items) - 1)
+        items = list(getattr(child, "items", getattr(child, "children", [])))
+        index = min(self.gallery_index, max(len(items) - 1, 0))
         if len(items) <= 1:
             self.editor_view.container.remove_item(child)
         else:
             items.pop(index)
+            if hasattr(child, "clear_items"):
+                child.clear_items()
+                for item in items:
+                    child.add_item(item)
+            else:
+                self.editor_view.container.remove_item(child)
         await self.editor_view.message.edit(view=self.editor_view, content=None)
         await interaction.response.send_message("Removed that gallery image.", ephemeral=True)
 
@@ -532,6 +557,7 @@ class ContainerEditorView(discord.ui.LayoutView):
             )
 
         self.content: Optional[str] = content
+        self.uploads: list[tuple[str, bytes]] = []
         self.message: Optional[discord.Message] = None
 
         self.add_item(self.container)
@@ -703,8 +729,37 @@ class ContainerEditorView(discord.ui.LayoutView):
     async def _on_add_link_button(self, interaction: discord.Interaction):
         await interaction.response.send_modal(ContainerLinkButtonModal(self))
 
+    def _files(self):
+        return [discord.File(io.BytesIO(data), filename=name) for name, data in self.uploads]
+
     async def _on_add_file_button(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(ContainerFileModal(self))
+        await interaction.response.send_message(
+            "Upload the file in your next message in this channel. It will be attached to this container.",
+            ephemeral=True,
+        )
+        def check(message: discord.Message) -> bool:
+            return message.author.id == interaction.user.id and message.channel.id == interaction.channel.id and bool(message.attachments)
+        try:
+            reply = await self.context.bot.wait_for("message", check=check, timeout=120)
+        except Exception:
+            await interaction.followup.send("No file uploaded. Cancelled.", ephemeral=True)
+            return
+        attachment = reply.attachments[0]
+        if attachment.size > 8 * 1024 * 1024:
+            await interaction.followup.send("That file is over 8 MB. Upload a smaller one.", ephemeral=True)
+            return
+        data = await attachment.read()
+        name = attachment.filename.replace(" ", "_")
+        self.uploads.append((name, data))
+        self.container.add_item(discord.ui.File(media=f"attachment://{name}"))
+        try:
+            await interaction.message.edit(view=self, content=None, attachments=interaction.message.attachments, files=self._files())
+        except discord.HTTPException as error:
+            self.uploads.pop()
+            self.container.remove_item(self.container.children[-1])
+            await interaction.followup.send(f"Could not attach that file: {error}", ephemeral=True)
+            return
+        await interaction.followup.send(f"Attached `{name}`.", ephemeral=True)
 
     async def _on_remove_item_button(self, interaction: discord.Interaction):
         if not self.container.children:
@@ -807,7 +862,11 @@ class ContainerEditorView(discord.ui.LayoutView):
         clean_view.add_item(clone_container(self.container))
 
         try:
-            await channel.send(view=clean_view, allowed_mentions=discord.AllowedMentions(roles=True))
+            await channel.send(
+                view=clean_view,
+                files=self._files(),
+                allowed_mentions=discord.AllowedMentions(roles=True),
+            )
         except discord.HTTPException as exc:
             text = (getattr(exc, "text", None) or str(exc)).split("\n", 1)[0][:300]
             return await interaction.response.send_message(f"Failed to send container: {text}", ephemeral=True)
@@ -853,4 +912,4 @@ class ContainerEditorView(discord.ui.LayoutView):
                 if not container_copy.children:
                     container_copy.add_item(discord.ui.TextDisplay("[Empty Container]"))
                 clean_view.add_item(container_copy)
-                await self.message.edit(view=clean_view, content=self.content)
+                await self.message.edit(view=clean_view, content=None)

@@ -514,20 +514,22 @@ class ContainerSectionButtonModal(ModalBase):
 
 
 class ContainerSeparatorModal(ModalBase):
-    def __init__(self, view: ContainerEditorView):
-        super().__init__(view, title="Add Separator Divider")
-
+    def __init__(self, view: ContainerEditorView, item: Optional[discord.ui.Separator] = None):
+        super().__init__(view, title="Edit Separator" if item else "Add Separator Divider")
+        self.item = item
         self.visible_input = discord.ui.TextInput(
             label="Visible Divider Line (true/false)",
             style=discord.TextStyle.short,
-            default="true",
+            default="false" if item is not None and not getattr(item, "visible", True) else "true",
             required=True,
             max_length=5,
         )
+        spacing = getattr(item, "spacing", None)
+        spacing_name = getattr(spacing, "name", "small")
         self.spacing_input = discord.ui.TextInput(
             label="Spacing (small/large)",
             style=discord.TextStyle.short,
-            default="small",
+            default="large" if str(spacing_name).lower() == "large" else "small",
             required=True,
             max_length=5,
         )
@@ -540,6 +542,13 @@ class ContainerSeparatorModal(ModalBase):
             if spacing_str == "large"
             else discord.SeparatorSpacing.small
         )
+        if self.item is not None:
+            try:
+                self.item.divider = visible
+            except Exception:
+                self.item.visible = visible
+            self.item.spacing = spacing
+            return
         try:
             container.add_item(discord.ui.Separator(divider=visible, spacing=spacing))
         except TypeError:

@@ -42,7 +42,7 @@ This is a Components V2 container, not an embed. Discord cannot show normal mess
 - **+ Text** adds a markdown block. Headers, bold, lists, and code work.
 - **+ Thumb Sec** puts up to 3 text blocks beside an image. **+ Btn Sec** puts text beside a link button.
 - **+ Divider** is a horizontal line only. **+ Media** adds a gallery image. **+ Link Btn** adds a link, with an optional emoji.
-- **+ File** needs `attachment://filename` for a file already on the message.
+- **+ File** asks you to upload a file. It is attached to the message and shown as a file card.
 - **Edit / Move** opens a block to change it, moves it up or down, or removes one gallery image.
 - **- Remove** deletes a whole block. **Export** gets Python, JSON, or replaces the container from JSON.
 - The channel menu posts a copy without these buttons.
