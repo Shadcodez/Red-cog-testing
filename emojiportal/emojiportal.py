@@ -220,8 +220,8 @@ class EmojiPortal(commands.Cog):
     @commands.guild_only()
     async def emojiportal(self, ctx: commands.Context):
         """Emoji management tools (list, download, move, etc.)."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+        # Do not call send_help() here — Red automatically shows help
+        # when a group is invoked with no subcommand. Manual calls cause double menus.
 
     @emojiportal.command(name="list")
     async def ep_list(self, ctx: commands.Context):
