@@ -1,0 +1,12 @@
+{
+  "author": ["shadow"],
+  "description": "Modern emoji management tools: list all server emojis in yellow embeds with even-per-row layout, download as split zips under 50MB, and move emojis between servers with rate-limit handling and resume support. Public list/download limited to 10 uses per day per server.",
+  "install_msg": "EmojiPortal loaded. Use [p]emojiportal for help. Anyone can list/download (10/day/server). Staff can move/steal. Requires Manage Expressions for create operations.",
+  "short": "List, download, and move server emojis safely with daily limits.",
+  "requirements": [],
+  "tags": ["emoji", "utility", "moderation", "tools"],
+  "min_python_version": [3, 8, 1],
+  "hidden": false,
+  "disabled": false,
+  "type": "COG"
+}
