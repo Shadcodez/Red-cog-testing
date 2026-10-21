@@ -1,5 +1,5 @@
 {
-    "author": ["PhenoM4n4n", "AAA3A"],
+    "author": ["original code by" "PhenoM4n4n", "AAA3A" "modified by SHADOW6six"],
     "name": "EmbedUtils",
     "install_msg": "EmbedUtils 3.1 uses the EmbedCreator builder.\n`[p]embed builder` or `[p]embed create title: Hello`.\nStore, Update stored, Event embed, and Server event sit under the builder.\n`[p]embed update` overwrites a saved embed. `[p]embed event ... True` also creates a Discord server event.",
     "short": "Modern embed creator: slash, buttons, modals, storage.",
