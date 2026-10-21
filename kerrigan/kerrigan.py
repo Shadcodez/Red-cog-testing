@@ -350,6 +350,8 @@ class Kerrigan(commands.Cog):
             f"`@{self.bot.user.name} mute @user 2h for spamming`\n"
             f"`@{self.bot.user.name} void 123456789012345678`\n"
             f"`@{self.bot.user.name} nullvoid @user for repeated violations`\n\n"
-            "Supported actions: ban, kick, mute, void, nullvoid, softban, tempban, warn, and more."
+            "**Supported actions**\n"
+            "ban, kick, mute, void, nullvoid, softban, tempban, tempmute, "
+            "mutechannel, tempmutechannel, warn, userinfo"
         )
         await ctx.send(text)
