@@ -1,0 +1,11 @@
+{
+  "author": ["shadow"],
+  "name": "Kerrigan",
+  "short": "Casual staff moderation assistant that works with VoidSanction.",
+  "description": "Allows staff to ping the bot with casual sentences containing a moderation action and user. Parses the request, optionally confirms, then executes via VoidSanction. Supports duration, soft theme toggle, and message cleanup. Configurable per server.",
+  "install_msg": "Thanks for adding Kerrigan. Load VoidSanction first for full functionality. Configure with [p]kerriganset.",
+  "requirements": [],
+  "tags": ["moderation", "utility", "void"],
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 10, 0]
+}
