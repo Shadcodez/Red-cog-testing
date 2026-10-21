@@ -139,25 +139,39 @@ class Kerrigan(commands.Cog):
         # Collect messages for cleanup
         conversation = [message]
 
-        # Always ask for the reason separately — don't try to extract it from the original sentence
-        prompt = "What reason should I record?"
-        if settings["soft_theme"]:
-            prompt = "Reason?"
-        bot_msg = await message.channel.send(prompt)
-        conversation.append(bot_msg)
+        # Prefer everything after the first "for" as the reason
+        reason = None
+        for_match = re.search(r"\bfor\b", content, re.IGNORECASE)
+        if for_match:
+            after_for = content[for_match.end():].strip()
+            # Clean mentions, IDs, and duration patterns out of the reason
+            after_for = re.sub(r"<@!?\d+>", "", after_for)
+            after_for = re.sub(r"\b\d{17,20}\b", "", after_for)
+            after_for = re.sub(DURATION_PATTERN, "", after_for)
+            after_for = " ".join(after_for.split()).strip()
+            if after_for:
+                reason = after_for
 
-        def check(m):
-            return m.author == message.author and m.channel == message.channel and not m.author.bot
+        if not reason:
+            # No usable reason after "for" — ask for one
+            prompt = "What reason should I record?"
+            if settings["soft_theme"]:
+                prompt = "Reason?"
+            bot_msg = await message.channel.send(prompt)
+            conversation.append(bot_msg)
 
-        try:
-            reason_msg = await self.bot.wait_for(
-                "message", check=check, timeout=settings["reason_timeout"]
-            )
-            conversation.append(reason_msg)
-            reason = reason_msg.content.strip() or "No reason given."
-        except asyncio.TimeoutError:
-            await message.channel.send("Timed out waiting for reason.", delete_after=5)
-            return
+            def check(m):
+                return m.author == message.author and m.channel == message.channel and not m.author.bot
+
+            try:
+                reason_msg = await self.bot.wait_for(
+                    "message", check=check, timeout=settings["reason_timeout"]
+                )
+                conversation.append(reason_msg)
+                reason = reason_msg.content.strip() or "No reason given."
+            except asyncio.TimeoutError:
+                await message.channel.send("Timed out waiting for reason.", delete_after=5)
+                return
 
         # Build confirmation text — only mention duration if one was actually given
         if duration:
