@@ -803,6 +803,60 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
             avatar_url=avatar_url,
         )
 
+    @embed.group(name="quote", invoke_without_command=True)
+    @commands.admin_or_permissions(manage_guild=True)
+    @commands.bot_has_permissions(manage_webhooks=True)
+    async def embed_quote(self, ctx: commands.Context) -> None:
+        """Admin only. Post a lookalike of a member through a webhook."""
+        await ctx.send_help()
+
+    @embed_quote.command(name="user")
+    async def embed_quote_user(
+        self,
+        ctx: commands.Context,
+        member: discord.Member,
+        channel: Optional[MessageableChannel] = None,
+        *,
+        text: str,
+    ) -> None:
+        """Post text as a member, using their name, avatar, and role colour."""
+        colour = member.colour if member.colour.value else await ctx.embed_color()
+        embed = discord.Embed(description=text[:4096], colour=colour)
+        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
+        await self.publish(
+            ctx,
+            {"embed": embed},
+            channel,
+            username=member.display_name,
+            avatar_url=member.display_avatar.url,
+        )
+
+    @embed_quote.command(name="message")
+    async def embed_quote_message(
+        self,
+        ctx: commands.Context,
+        message: commands.MessageConverter,
+        channel: Optional[MessageableChannel] = None,
+    ) -> None:
+        """Repost a message as its author, using their name, avatar, and role colour."""
+        author = message.author
+        member = message.guild.get_member(author.id) if message.guild else None
+        colour = member.colour if member and member.colour.value else await ctx.embed_color()
+        body = message.content or (message.embeds[0].description if message.embeds else "")
+        if not body:
+            raise commands.BadArgument("That message has no text to quote.")
+        embed = discord.Embed(description=body[:4096], colour=colour)
+        embed.set_author(name=getattr(author, "display_name", author.name), icon_url=author.display_avatar.url)
+        if message.attachments:
+            embed.set_image(url=message.attachments[0].url)
+        await self.publish(
+            ctx,
+            {"embed": embed},
+            channel,
+            username=getattr(author, "display_name", author.name),
+            avatar_url=author.display_avatar.url,
+        )
+
     @embed_stored.command(name="dm", aliases=["dmglobal"])
     async def embed_dm(
         self,

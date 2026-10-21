@@ -658,19 +658,16 @@ class ContainerEditorView(discord.ui.LayoutView):
         self.add_item(row4)
 
     async def _edit_preview(self, interaction: discord.Interaction) -> None:
-        """Components V2 messages cannot include normal content or embeds."""
+        """Ack first. A slow edit after the 3-second window shows as the bot not responding."""
+        if not interaction.response.is_done():
+            await interaction.response.defer()
         try:
-            await interaction.message.edit(view=self, content=None)
+            target = self.message or interaction.message
+            await target.edit(view=self, content=None)
         except discord.HTTPException as exc:
             text = (getattr(exc, "text", None) or str(exc)).split("\n", 1)[0][:300]
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"Discord rejected that edit: {text}", ephemeral=True)
-            else:
-                await interaction.followup.send(f"Discord rejected that edit: {text}", ephemeral=True)
+            await interaction.followup.send(f"Discord rejected that edit: {text}", ephemeral=True)
             raise
-        else:
-            if not interaction.response.is_done():
-                await interaction.response.defer()
 
     def replace_container(self, new_container: discord.ui.Container):
         self.remove_item(self.container)
@@ -752,8 +749,9 @@ class ContainerEditorView(discord.ui.LayoutView):
         name = attachment.filename.replace(" ", "_")
         self.uploads.append((name, data))
         self.container.add_item(discord.ui.File(media=f"attachment://{name}"))
+        preview = self.message or interaction.message
         try:
-            await interaction.message.edit(view=self, content=None, attachments=interaction.message.attachments, files=self._files())
+            await preview.edit(view=self, content=None, attachments=preview.attachments, files=self._files())
         except discord.HTTPException as error:
             self.uploads.pop()
             self.container.remove_item(self.container.children[-1])

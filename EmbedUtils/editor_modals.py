@@ -10,6 +10,33 @@ if TYPE_CHECKING:
     from .editor_views import ContainerEditorView, EmbedEditorView
 
 
+COLOUR_NAMES = {
+    "red": 0xE74C3C, "dark_red": 0x992D22, "green": 0x2ECC71, "dark_green": 0x1F8B4C,
+    "blue": 0x3498DB, "dark_blue": 0x206694, "blurple": 0x5865F2, "purple": 0x9B59B6,
+    "yellow": 0xF1C40F, "orange": 0xE67E22, "gold": 0xF1C40F, "teal": 0x1ABC9C,
+    "magenta": 0xE91E63, "pink": 0xEB459E, "white": 0xFFFFFF, "black": 0x000000,
+    "grey": 0x95A5A6, "gray": 0x95A5A6, "greyple": 0x99AAB5, "light_grey": 0xBCC0C0,
+    "dark_grey": 0x607D8B, "cyan": 0x00BCD4, "brown": 0x8B4513,
+}
+
+
+def parse_colour(raw: str) -> discord.Colour:
+    text = (raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if not text:
+        raise ValueError("Enter a colour name like red or blurple, or a hex code like #5865F2.")
+    if text in COLOUR_NAMES:
+        return discord.Colour(COLOUR_NAMES[text])
+    hex_text = text[1:] if text.startswith("#") else text[2:] if text.startswith("0x") else text
+    try:
+        if all(c in "0123456789abcdef" for c in hex_text) and len(hex_text) in {3, 6}:
+            if len(hex_text) == 3:
+                hex_text = "".join(c * 2 for c in hex_text)
+            return discord.Colour(int(hex_text, 16))
+        return discord.Colour(int(text))
+    except ValueError as exc:
+        raise ValueError("Use a name like red, blurple, or green, or a hex code like #5865F2.") from exc
+
+
 class ModalBase(discord.ui.Modal):
     def __init__(self, view: Any, /, *, title: str):
         self.view = view
@@ -114,8 +141,9 @@ class EmbedColourModal(SingularEmbedComponentModal):
         super().__init__(
             view,
             title="Set embed colour",
-            label="Enter integer, hex code, or colour name",
+            label="Colour name or hex",
             style=discord.TextStyle.short,
+            placeholder="red, blurple, or #5865F2",
             default=str(view.embed.colour or ""),
             required=False,
         )
@@ -124,10 +152,7 @@ class EmbedColourModal(SingularEmbedComponentModal):
     async def edit_target(self, embed: discord.Embed):
         colour = self.component.value or None
         if colour:
-            try:
-                embed.colour = await ColourConverter().convert(self.context, colour)
-            except BadArgument:
-                raise ValueError(f"Invalid colour {colour!r}")
+            embed.colour = parse_colour(colour)
         else:
             embed.colour = None
 
@@ -336,7 +361,7 @@ class ContainerAccentColourModal(ModalBase):
         self.colour_input = discord.ui.TextInput(
             label="Accent colour (name, hex, or integer)",
             style=discord.TextStyle.short,
-            placeholder="e.g. blurple, #5865F2, or 5793266",
+            placeholder="e.g. blurple, red, or #5865F2",
             default=current_colour,
             required=False,
         )
@@ -349,20 +374,9 @@ class ContainerAccentColourModal(ModalBase):
             return
 
         try:
-            converted = await ColourConverter().convert(self.context, raw_val)
-            container.accent_colour = converted
-        except BadArgument:
-            # Fallback to integer or hex parse
-            try:
-                if raw_val.startswith("#"):
-                    val = int(raw_val[1:], 16)
-                elif raw_val.startswith("0x"):
-                    val = int(raw_val, 16)
-                else:
-                    val = int(raw_val)
-                container.accent_colour = discord.Colour(val)
-            except ValueError:
-                raise ValueError(f"Invalid colour {raw_val!r}. Please provide a valid hex, integer, or colour name.")
+            container.accent_colour = parse_colour(raw_val)
+        except ValueError:
+            raise
 
 
 class ContainerTextDisplayModal(ModalBase):
