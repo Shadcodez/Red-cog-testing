@@ -141,12 +141,12 @@ class Kerrigan(commands.Cog):
 
         # Prefer everything after the first "for" as the reason
         reason = None
-        for_match = re.search(r"\bfor\b", content, re.IGNORECASE)
+        # Work on a cleaned version of the content for extraction
+        clean = re.sub(r"<@!?\d+>", "", content)  # strip all mentions
+        clean = re.sub(r"\b\d{17,20}\b", "", clean)
+        for_match = re.search(r"\bfor\b", clean, re.IGNORECASE)
         if for_match:
-            after_for = content[for_match.end():].strip()
-            # Clean mentions, IDs, and duration patterns out of the reason
-            after_for = re.sub(r"<@!?\d+>", "", after_for)
-            after_for = re.sub(r"\b\d{17,20}\b", "", after_for)
+            after_for = clean[for_match.end():].strip()
             after_for = re.sub(DURATION_PATTERN, "", after_for)
             after_for = " ".join(after_for.split()).strip()
             if after_for:
@@ -332,3 +332,24 @@ class Kerrigan(commands.Cog):
             else:
                 roles.append(role.id)
                 await ctx.send(f"Added {role.mention} as a staff role.")
+
+    @kerriganset.command(name="example")
+    async def set_example(self, ctx: commands.Context):
+        """Show usage examples and requirements."""
+        vs_loaded = self.bot.get_cog("VoidSanction") is not None
+        status = "loaded" if vs_loaded else "**not loaded**"
+        text = (
+            "**Kerrigan requires the VoidSanction cog to be installed and loaded.**\n"
+            f"Current status: VoidSanction is {status}.\n\n"
+            "**How it works**\n"
+            "Staff ping the bot with a casual sentence containing an action and a user.\n"
+            "If the message contains `for`, everything after it is used as the reason.\n"
+            "Otherwise the bot asks for a reason. Duration is optional.\n\n"
+            "**Examples**\n"
+            f"`@{self.bot.user.name} kick @user for being inactive`\n"
+            f"`@{self.bot.user.name} mute @user 2h for spamming`\n"
+            f"`@{self.bot.user.name} void 123456789012345678`\n"
+            f"`@{self.bot.user.name} nullvoid @user for repeated violations`\n\n"
+            "Supported actions: ban, kick, mute, void, nullvoid, softban, tempban, warn, and more."
+        )
+        await ctx.send(text)
