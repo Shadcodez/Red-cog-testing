@@ -822,7 +822,6 @@ class EmbedUtils(DashboardIntegration, commands.Cog):
         """Post text as a member, using their name, avatar, and role colour."""
         colour = member.colour if member.colour.value else await ctx.embed_color()
         embed = discord.Embed(description=text[:4096], colour=colour)
-        embed.set_author(name=member.display_name, icon_url=member.display_avatar.url)
         await self.publish(
             ctx,
             {"embed": embed},
