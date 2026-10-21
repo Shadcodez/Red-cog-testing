@@ -135,52 +135,46 @@ class Kerrigan(commands.Cog):
             return
 
         duration = self._parse_duration(content)
-        # Remaining text after removing action keywords, duration, mentions, IDs as possible reason hint
-        # For simplicity we always ask for reason unless the message has substantial extra text after stripping
-        reason_hint = content
-        for kw in ACTION_KEYWORDS:
-            reason_hint = re.sub(rf"\b{re.escape(kw)}\b", "", reason_hint, flags=re.IGNORECASE)
-        reason_hint = re.sub(r"<@!?\d+>", "", reason_hint)
-        reason_hint = re.sub(r"\b\d{17,20}\b", "", reason_hint)
-        if duration:
-            reason_hint = re.sub(DURATION_PATTERN, "", reason_hint)
-        reason_hint = " ".join(reason_hint.split()).strip()
 
         # Collect messages for cleanup
         conversation = [message]
 
-        # Ask for reason if none obvious
-        reason = reason_hint if len(reason_hint) > 3 else None
-        if not reason:
-            prompt = "What reason should I record?"
-            if settings["soft_theme"]:
-                prompt = "Reason for the action?"
-            bot_msg = await message.channel.send(prompt)
-            conversation.append(bot_msg)
-
-            def check(m):
-                return m.author == message.author and m.channel == message.channel and not m.author.bot
-
-            try:
-                reason_msg = await self.bot.wait_for(
-                    "message", check=check, timeout=settings["reason_timeout"]
-                )
-                conversation.append(reason_msg)
-                reason = reason_msg.content.strip()
-                if not reason:
-                    reason = "No reason given."
-            except asyncio.TimeoutError:
-                await message.channel.send("Timed out waiting for reason.", delete_after=5)
-                return
-
-        # Build confirmation text
-        duration_str = humanize_timedelta(timedelta=duration) if duration else "permanent / default"
-        confirm_text = (
-            f"Would you like me to **{action_key}** {target.mention} "
-            f"for **{duration_str}** with reason: *{reason}*?"
-        )
+        # Always ask for the reason separately — don't try to extract it from the original sentence
+        prompt = "What reason should I record?"
         if settings["soft_theme"]:
-            confirm_text = f"Confirm: {action_key} {target.display_name} ({duration_str}) — {reason}?"
+            prompt = "Reason?"
+        bot_msg = await message.channel.send(prompt)
+        conversation.append(bot_msg)
+
+        def check(m):
+            return m.author == message.author and m.channel == message.channel and not m.author.bot
+
+        try:
+            reason_msg = await self.bot.wait_for(
+                "message", check=check, timeout=settings["reason_timeout"]
+            )
+            conversation.append(reason_msg)
+            reason = reason_msg.content.strip() or "No reason given."
+        except asyncio.TimeoutError:
+            await message.channel.send("Timed out waiting for reason.", delete_after=5)
+            return
+
+        # Build confirmation text — only mention duration if one was actually given
+        if duration:
+            duration_str = humanize_timedelta(timedelta=duration)
+            confirm_text = (
+                f"Would you like me to **{action_key}** {target.mention} "
+                f"for **{duration_str}** with reason: *{reason}*?"
+            )
+            if settings["soft_theme"]:
+                confirm_text = f"Confirm: {action_key} {target.display_name} for {duration_str} — {reason}?"
+        else:
+            confirm_text = (
+                f"Would you like me to **{action_key}** {target.mention} "
+                f"with reason: *{reason}*?"
+            )
+            if settings["soft_theme"]:
+                confirm_text = f"Confirm: {action_key} {target.display_name} — {reason}?"
 
         if settings["require_confirmation"]:
             bot_msg = await message.channel.send(confirm_text)
