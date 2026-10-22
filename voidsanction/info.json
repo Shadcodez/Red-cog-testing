@@ -1,5 +1,5 @@
 {
-    "author": ["Grok", "AAA3A"],
+    "author": ["edited w Grok by shadow6six", "AAA3A"],
     "name": "VoidSanction",
     "install_msg": "Thank you for installing **VoidSanction**, a fork of AAA3A's SimpleSanction.\nLoad it with `[p]load voidsaction` then use `[p]voidsanction @member`.\nSet per-action GIFs with `[p]setvoidsanction gif set <action> <url>`. Nullvoid uses the Void cog meme from `[p]nullvoidset`.",
     "short": "Button sanction menu with cleanup prompts, Void/NullVoid, delayed self-clean, and per-action GIFs.",
