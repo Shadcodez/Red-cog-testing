@@ -31,7 +31,7 @@ ACTION_KEYWORDS = {
 }
 
 DURATION_PATTERN = re.compile(
-    r"\b(\d+\s*(?:w|weeks?|d|days?|h|hrs?|hours?|m|mins?|minutes?|s|secs?|seconds?))\b",
+    r"\b(\d+\s*(?:weeks?|w|days?|d|hours?|hrs?|hr?|h|minutes?|mins?|m|seconds?|secs?|s))\b",
     re.IGNORECASE,
 )
 
@@ -77,13 +77,14 @@ class Kerrigan(commands.Cog):
                 return ACTION_KEYWORDS[keyword]
         return None
 
-    def _parse_duration(self, content: str) -> Optional[timedelta]:
+    def _parse_duration(self, content: str) -> Optional[str]:
+        """Return the raw duration string (e.g. '2h', '1d') or None. VoidSanction expects a string."""
         matches = DURATION_PATTERN.findall(content)
         for match in matches:
             try:
                 delta = parse_timedelta(match)
                 if delta and delta.total_seconds() > 0:
-                    return delta
+                    return match.strip()
             except Exception:
                 continue
         return None
@@ -153,7 +154,7 @@ class Kerrigan(commands.Cog):
                     action=action,
                     member=target,
                     duration=None,
-                    reason=None,
+                    reason="User info request",
                     confirmation=False,
                     finish_message=False,
                 )
@@ -193,13 +194,24 @@ class Kerrigan(commands.Cog):
                 )
                 conversation.append(reason_msg)
                 reason = reason_msg.content.strip() or "No reason given."
+                # If no duration was found yet, check the reason reply for one
+                if not duration:
+                    duration = self._parse_duration(reason_msg.content)
+                    if duration:
+                        # Strip the duration out of the reason text
+                        reason = re.sub(DURATION_PATTERN, "", reason).strip() or "No reason given."
             except asyncio.TimeoutError:
                 await message.channel.send("Timed out waiting for reason.", delete_after=5)
                 return
 
         # Build confirmation text — only mention duration if one was actually given
         if duration:
-            duration_str = humanize_timedelta(timedelta=duration)
+            # duration is already a string like "2h"
+            try:
+                parsed = parse_timedelta(duration)
+                duration_str = humanize_timedelta(timedelta=parsed) if parsed else duration
+            except Exception:
+                duration_str = duration
             confirm_text = (
                 f"Would you like me to **{action_key}** {target.mention} "
                 f"for **{duration_str}** with reason: *{reason}*?"
@@ -252,14 +264,16 @@ class Kerrigan(commands.Cog):
         try:
             ctx = await self.bot.get_context(message)
             action = vs_cog.actions[action_key]
+            # VoidSanction expects duration as a string (or None) and reason as a string
+            safe_reason = reason if isinstance(reason, str) and reason.strip() else "No reason given."
             await vs_cog.call_sanction(
                 ctx,
                 action=action,
                 member=target,
-                duration=duration,
-                reason=reason,
-                confirmation=False,  # We already confirmed
-                finish_message=False,  # Keep chat clean
+                duration=duration,  # already a string or None
+                reason=safe_reason,
+                confirmation=False,
+                finish_message=False,
             )
         except Exception as e:
             await message.channel.send(f"Failed to execute action: {e}", delete_after=10)
