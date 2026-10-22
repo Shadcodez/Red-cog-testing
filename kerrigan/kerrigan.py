@@ -17,8 +17,12 @@ ACTION_KEYWORDS = {
     "temp ban": "tempban",
     "tempmute": "tempmute",
     "temp mute": "tempmute",
+    "tempmutechannel": "tempmutechannel",
+    "temp mute channel": "tempmutechannel",
     "mutechannel": "mutechannel",
     "mute channel": "mutechannel",
+    "userinfo": "userinfo",
+    "user info": "userinfo",
     "void": "void",
     "ban": "ban",
     "kick": "kick",
@@ -349,7 +353,8 @@ class Kerrigan(commands.Cog):
             f"`@{self.bot.user.name} kick @user for being inactive`\n"
             f"`@{self.bot.user.name} mute @user 2h for spamming`\n"
             f"`@{self.bot.user.name} void 123456789012345678`\n"
-            f"`@{self.bot.user.name} nullvoid @user for repeated violations`\n\n"
+            f"`@{self.bot.user.name} nullvoid @user for repeated violations`\n"
+            f"`@{self.bot.user.name} could you give me the userinfo of @user`\n\n"
             "**Supported actions**\n"
             "ban, kick, mute, void, nullvoid, softban, tempban, tempmute, "
             "mutechannel, tempmutechannel, warn, userinfo"
