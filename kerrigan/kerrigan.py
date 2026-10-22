@@ -143,6 +143,26 @@ class Kerrigan(commands.Cog):
         # Collect messages for cleanup
         conversation = [message]
 
+        # userinfo is informational — skip reason and confirmation, execute immediately
+        if action_key == "userinfo":
+            try:
+                ctx = await self.bot.get_context(message)
+                action = vs_cog.actions[action_key]
+                await vs_cog.call_sanction(
+                    ctx,
+                    action=action,
+                    member=target,
+                    duration=None,
+                    reason=None,
+                    confirmation=False,
+                    finish_message=False,
+                )
+            except Exception as e:
+                await message.channel.send(f"Failed to get user info: {e}", delete_after=10)
+            if settings["cleanup_enabled"]:
+                self._schedule_cleanup(message.channel, conversation, settings["cleanup_delay"])
+            return
+
         # Prefer everything after the first "for" as the reason
         reason = None
         # Work on a cleaned version of the content for extraction
