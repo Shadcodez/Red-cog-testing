@@ -17,8 +17,12 @@ ACTION_KEYWORDS = {
     "temp ban": "tempban",
     "tempmute": "tempmute",
     "temp mute": "tempmute",
+    "tempmutechannel": "tempmutechannel",
+    "temp mute channel": "tempmutechannel",
     "mutechannel": "mutechannel",
     "mute channel": "mutechannel",
+    "userinfo": "userinfo",
+    "user info": "userinfo",
     "void": "void",
     "ban": "ban",
     "kick": "kick",
@@ -27,13 +31,32 @@ ACTION_KEYWORDS = {
 }
 
 DURATION_PATTERN = re.compile(
-    r"\b(\d+\s*(?:w|weeks?|d|days?|h|hrs?|hours?|m|mins?|minutes?|s|secs?|seconds?))\b",
+    r"\b(\d+\s*(?:weeks?|w|days?|d|hours?|hrs?|hr?|h|minutes?|mins?|m|seconds?|secs?|s))\b",
     re.IGNORECASE,
 )
 
 
 class Kerrigan(commands.Cog):
-    """Casual staff moderation requests that execute through VoidSanction."""
+    """Casual staff moderation assistant.
+
+    Staff can ping the bot with a casual sentence containing a moderation
+    action and a user. The bot extracts the request and executes it through
+    VoidSanction (and the Void cog for void/nullvoid actions).
+
+    Requires VoidSanction to be loaded. Void is recommended for full void
+    and nullvoid support.
+    """
+
+    def format_help_for_context(self, ctx: commands.Context) -> str:
+        bot_name = ctx.bot.user.name if ctx.bot.user else "the bot"
+        return (
+            f"Casual staff moderation assistant for {bot_name}.\n\n"
+            f"Staff can ping {bot_name} with a casual sentence containing a moderation "
+            "action and a user. The bot extracts the request and executes it through "
+            "VoidSanction (and the Void cog for void/nullvoid actions).\n\n"
+            "Requires VoidSanction to be loaded. Void is recommended for full void "
+            "and nullvoid support."
+        )
 
     def __init__(self, bot):
         self.bot = bot
@@ -47,6 +70,15 @@ class Kerrigan(commands.Cog):
             staff_role_ids=[],
             reason_timeout=60,
             confirm_timeout=30,
+            # Flavor texts (placeholders: {bot}, {action}, {user}, {reason}, {duration})
+            flavor_reason_prompt="What reason should I record?",
+            flavor_reason_prompt_soft="Reason?",
+            flavor_confirm_duration="Would you like me to **{action}** {user} for **{duration}** with reason: *{reason}*?",
+            flavor_confirm_no_duration="Would you like me to **{action}** {user} with reason: *{reason}*?",
+            flavor_confirm_soft="Confirm: {action} {user} — {reason}?",
+            flavor_executing="Executing: {action} {user}",
+            flavor_cancelled="Cancelled.",
+            flavor_timeout="Timed out waiting for reason.",
         )
         self._cleanup_tasks = {}
 
@@ -73,13 +105,14 @@ class Kerrigan(commands.Cog):
                 return ACTION_KEYWORDS[keyword]
         return None
 
-    def _parse_duration(self, content: str) -> Optional[timedelta]:
+    def _parse_duration(self, content: str) -> Optional[str]:
+        """Return the raw duration string (e.g. '2h', '1d') or None. VoidSanction expects a string."""
         matches = DURATION_PATTERN.findall(content)
         for match in matches:
             try:
                 delta = parse_timedelta(match)
                 if delta and delta.total_seconds() > 0:
-                    return delta
+                    return match.strip()
             except Exception:
                 continue
         return None
@@ -139,6 +172,26 @@ class Kerrigan(commands.Cog):
         # Collect messages for cleanup
         conversation = [message]
 
+        # userinfo is informational — skip reason and confirmation, execute immediately
+        if action_key == "userinfo":
+            try:
+                ctx = await self.bot.get_context(message)
+                action = vs_cog.actions[action_key]
+                await vs_cog.call_sanction(
+                    ctx,
+                    action=action,
+                    member=target,
+                    duration=None,
+                    reason="User info request",
+                    confirmation=False,
+                    finish_message=False,
+                )
+            except Exception as e:
+                await message.channel.send(f"Failed to get user info: {e}", delete_after=10)
+            if settings["cleanup_enabled"]:
+                self._schedule_cleanup(message.channel, conversation, settings["cleanup_delay"])
+            return
+
         # Prefer everything after the first "for" as the reason
         reason = None
         # Work on a cleaned version of the content for extraction
@@ -154,9 +207,10 @@ class Kerrigan(commands.Cog):
 
         if not reason:
             # No usable reason after "for" — ask for one
-            prompt = "What reason should I record?"
             if settings["soft_theme"]:
-                prompt = "Reason?"
+                prompt = settings.get("flavor_reason_prompt_soft") or "Reason?"
+            else:
+                prompt = settings.get("flavor_reason_prompt") or "What reason should I record?"
             bot_msg = await message.channel.send(prompt)
             conversation.append(bot_msg)
 
@@ -169,26 +223,39 @@ class Kerrigan(commands.Cog):
                 )
                 conversation.append(reason_msg)
                 reason = reason_msg.content.strip() or "No reason given."
+                # If no duration was found yet, check the reason reply for one
+                if not duration:
+                    duration = self._parse_duration(reason_msg.content)
+                    if duration:
+                        # Strip the duration out of the reason text
+                        reason = re.sub(DURATION_PATTERN, "", reason).strip() or "No reason given."
             except asyncio.TimeoutError:
-                await message.channel.send("Timed out waiting for reason.", delete_after=5)
+                msg = settings.get("flavor_timeout") or "Timed out waiting for reason."
+                await message.channel.send(msg, delete_after=5)
                 return
 
         # Build confirmation text — only mention duration if one was actually given
+        duration_str = ""
         if duration:
-            duration_str = humanize_timedelta(timedelta=duration)
-            confirm_text = (
-                f"Would you like me to **{action_key}** {target.mention} "
-                f"for **{duration_str}** with reason: *{reason}*?"
-            )
-            if settings["soft_theme"]:
-                confirm_text = f"Confirm: {action_key} {target.display_name} for {duration_str} — {reason}?"
+            try:
+                parsed = parse_timedelta(duration)
+                duration_str = humanize_timedelta(timedelta=parsed) if parsed else duration
+            except Exception:
+                duration_str = duration
+
+        fmt = {
+            "bot": self.bot.user.name,
+            "action": action_key,
+            "user": target.mention,
+            "reason": reason or "No reason given.",
+            "duration": duration_str,
+        }
+        if settings["soft_theme"]:
+            confirm_text = (settings.get("flavor_confirm_soft") or "Confirm: {action} {user} — {reason}?").format(**fmt)
+        elif duration:
+            confirm_text = (settings.get("flavor_confirm_duration") or "Would you like me to **{action}** {user} for **{duration}** with reason: *{reason}*?").format(**fmt)
         else:
-            confirm_text = (
-                f"Would you like me to **{action_key}** {target.mention} "
-                f"with reason: *{reason}*?"
-            )
-            if settings["soft_theme"]:
-                confirm_text = f"Confirm: {action_key} {target.display_name} — {reason}?"
+            confirm_text = (settings.get("flavor_confirm_no_duration") or "Would you like me to **{action}** {user} with reason: *{reason}*?").format(**fmt)
 
         if settings["require_confirmation"]:
             bot_msg = await message.channel.send(confirm_text)
@@ -207,7 +274,8 @@ class Kerrigan(commands.Cog):
                 )
                 conversation.append(reply)
                 if reply.content.lower().strip() not in ("yes", "y"):
-                    await message.channel.send("Cancelled.", delete_after=5)
+                    msg = settings.get("flavor_cancelled") or "Cancelled."
+                    await message.channel.send(msg, delete_after=5)
                     if settings["cleanup_enabled"]:
                         self._schedule_cleanup(message.channel, conversation, settings["cleanup_delay"])
                     return
@@ -218,7 +286,9 @@ class Kerrigan(commands.Cog):
                 return
         else:
             # Auto proceed, still send a brief note
-            note = f"Executing: {action_key} {target.display_name}"
+            note = (settings.get("flavor_executing") or "Executing: {action} {user}").format(
+                action=action_key, user=target.display_name, bot=self.bot.user.name
+            )
             if settings["soft_theme"]:
                 note = f"Proceeding with {action_key}."
             bot_msg = await message.channel.send(note)
@@ -228,14 +298,16 @@ class Kerrigan(commands.Cog):
         try:
             ctx = await self.bot.get_context(message)
             action = vs_cog.actions[action_key]
+            # VoidSanction expects duration as a string (or None) and reason as a string
+            safe_reason = reason if isinstance(reason, str) and reason.strip() else "No reason given."
             await vs_cog.call_sanction(
                 ctx,
                 action=action,
                 member=target,
-                duration=duration,
-                reason=reason,
-                confirmation=False,  # We already confirmed
-                finish_message=False,  # Keep chat clean
+                duration=duration,  # already a string or None
+                reason=safe_reason,
+                confirmation=False,
+                finish_message=False,
             )
         except Exception as e:
             await message.channel.send(f"Failed to execute action: {e}", delete_after=10)
@@ -265,10 +337,12 @@ class Kerrigan(commands.Cog):
     @commands.guild_only()
     @commands.admin_or_permissions(manage_guild=True)
     async def kerriganset(self, ctx: commands.Context):
-        """Configure Kerrigan for this server."""
+        """Configure the casual moderation assistant for this server."""
         if ctx.invoked_subcommand is None:
             settings = await self.config.guild(ctx.guild).all()
-            embed = discord.Embed(title="Kerrigan Settings", color=await ctx.embed_color())
+            embed = discord.Embed(
+                title=f"{ctx.bot.user.name} Settings", color=await ctx.embed_color()
+            )
             embed.add_field(name="Enabled", value=str(settings["enabled"]))
             embed.add_field(name="Require Confirmation", value=str(settings["require_confirmation"]))
             embed.add_field(name="Soft Theme", value=str(settings["soft_theme"]))
@@ -283,7 +357,7 @@ class Kerrigan(commands.Cog):
         if enabled is None:
             enabled = not await self.config.guild(ctx.guild).enabled()
         await self.config.guild(ctx.guild).enabled.set(enabled)
-        await ctx.send(f"Kerrigan is now {'enabled' if enabled else 'disabled'}.")
+        await ctx.send(f"{ctx.bot.user.name} is now {'enabled' if enabled else 'disabled'}.")
 
     @kerriganset.command(name="confirm")
     async def set_confirm(self, ctx: commands.Context, require: bool = None):
@@ -333,23 +407,79 @@ class Kerrigan(commands.Cog):
                 roles.append(role.id)
                 await ctx.send(f"Added {role.mention} as a staff role.")
 
+    @kerriganset.command(name="flavor")
+    async def set_flavor(self, ctx: commands.Context, key: str = None, *, text: str = None):
+        """View or edit flavor text.
+
+        Available keys:
+        reason_prompt, reason_prompt_soft,
+        confirm_duration, confirm_no_duration, confirm_soft,
+        executing, cancelled, timeout
+
+        Placeholders: {bot} {action} {user} {reason} {duration}
+
+        Examples:
+        [p]kerriganset flavor
+        [p]kerriganset flavor reason_prompt What is the reason?
+        [p]kerriganset flavor confirm_duration Confirm {action} on {user} for {duration}?
+        """
+        flavor_keys = {
+            "reason_prompt": "flavor_reason_prompt",
+            "reason_prompt_soft": "flavor_reason_prompt_soft",
+            "confirm_duration": "flavor_confirm_duration",
+            "confirm_no_duration": "flavor_confirm_no_duration",
+            "confirm_soft": "flavor_confirm_soft",
+            "executing": "flavor_executing",
+            "cancelled": "flavor_cancelled",
+            "timeout": "flavor_timeout",
+        }
+
+        if key is None:
+            settings = await self.config.guild(ctx.guild).all()
+            lines = ["**Current flavor texts**\n"]
+            for short, full in flavor_keys.items():
+                val = settings.get(full, "")
+                lines.append(f"`{short}`: {val}")
+            lines.append("\nUse `[p]kerriganset flavor <key> <text>` to change one.")
+            await ctx.send("\n".join(lines))
+            return
+
+        key = key.lower()
+        if key not in flavor_keys:
+            await ctx.send(f"Unknown key. Available: {', '.join(flavor_keys)}")
+            return
+
+        if text is None:
+            await ctx.send("Please provide the new text.")
+            return
+
+        await getattr(self.config.guild(ctx.guild), flavor_keys[key]).set(text)
+        await ctx.send(f"Updated `{key}` to: {text}")
+
     @kerriganset.command(name="example")
     async def set_example(self, ctx: commands.Context):
         """Show usage examples and requirements."""
+        bot_name = self.bot.user.name
         vs_loaded = self.bot.get_cog("VoidSanction") is not None
-        status = "loaded" if vs_loaded else "**not loaded**"
+        void_loaded = self.bot.get_cog("Void") is not None
+        vs_status = "loaded" if vs_loaded else "**not loaded**"
+        void_status = "loaded" if void_loaded else "not loaded (recommended)"
         text = (
-            "**Kerrigan requires the VoidSanction cog to be installed and loaded.**\n"
-            f"Current status: VoidSanction is {status}.\n\n"
+            f"**{bot_name} requires the VoidSanction cog to be installed and loaded.**\n"
+            f"Void cog is recommended for void and nullvoid actions.\n\n"
+            f"Current status:\n"
+            f"- VoidSanction: {vs_status}\n"
+            f"- Void: {void_status}\n\n"
             "**How it works**\n"
-            "Staff ping the bot with a casual sentence containing an action and a user.\n"
+            f"Staff ping {bot_name} with a casual sentence containing an action and a user.\n"
             "If the message contains `for`, everything after it is used as the reason.\n"
             "Otherwise the bot asks for a reason. Duration is optional.\n\n"
             "**Examples**\n"
-            f"`@{self.bot.user.name} kick @user for being inactive`\n"
-            f"`@{self.bot.user.name} mute @user 2h for spamming`\n"
-            f"`@{self.bot.user.name} void 123456789012345678`\n"
-            f"`@{self.bot.user.name} nullvoid @user for repeated violations`\n\n"
+            f"`@{bot_name} kick @user for being inactive`\n"
+            f"`@{bot_name} mute @user 2h for spamming`\n"
+            f"`@{bot_name} void 123456789012345678`\n"
+            f"`@{bot_name} nullvoid @user for repeated violations`\n"
+            f"`@{bot_name} could you give me the userinfo of @user`\n\n"
             "**Supported actions**\n"
             "ban, kick, mute, void, nullvoid, softban, tempban, tempmute, "
             "mutechannel, tempmutechannel, warn, userinfo"
