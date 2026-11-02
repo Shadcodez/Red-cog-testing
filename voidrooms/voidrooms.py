@@ -95,7 +95,7 @@ class VoidRooms(commands.Cog):
                 f"**Owner:** {member.mention}\n\n"
                 f"Use `{prefix}allow @user` to grant access (locked/private).\n"
                 f"Use `{prefix}transfer @user` to pass ownership.\n"
-                f"Use `{prefix}remove @user` to discreetly deny access."
+                f"Use `{prefix}eject @user` to discreetly deny access."
             ),
             color=discord.Color.dark_theme()
         )
@@ -242,9 +242,9 @@ class VoidRooms(commands.Cog):
         await room.set_permissions(user, view_channel=True, connect=True, speak=True)
         await ctx.send(f"{user.mention} can now join your room.", delete_after=15)
 
-    @commands.command(name="remove", aliases=["kick", "deny"])
+    @commands.command(name="eject", aliases=["voideject", "deny"])
     @commands.guild_only()
-    async def remove_user(self, ctx: commands.Context, user: discord.Member):
+    async def eject_user(self, ctx: commands.Context, user: discord.Member):
         """Discreetly remove a user from your Void Room (sets deny connect)."""
         room = await self._get_owned_room(ctx.author)
         if not room:

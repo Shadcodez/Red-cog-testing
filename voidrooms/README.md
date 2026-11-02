@@ -14,7 +14,7 @@ Automatic personal voice rooms for Red-DiscordBot.
 - Join the source channel → private room created (name = game or username).
 - Modes: normal / locked / private.
 - `[p]allow @user` — grant access.
-- `[p]remove @user` — discreetly deny + disconnect.
+- `[p]eject @user` — discreetly deny + disconnect.
 - `[p]transfer @user` — pass ownership.
 - Auto-delete when empty.
 - Dismissable creation notice (voice chat + DM).
