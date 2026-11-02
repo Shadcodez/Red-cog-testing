@@ -1,0 +1,11 @@
+{
+  "author": ["SHADOW6six", "Grok"],
+  "description": "Automatic personal voice rooms (VoidRooms). Join a source channel to create a room named after you or your current game. Supports normal/locked/private modes, ownership transfer, allow/remove, and auto-delete when empty. Inspired by AutoRoom.",
+  "install_msg": "VoidRooms installed! Use `[p]voidroomsset source <vc> <category>` to configure. Author: SHADOW6six + Grok (inspired by autoroom).",
+  "short": "Auto personal voice rooms (normal/locked/private)",
+  "end_user_data_statement": "This cog stores room ownership and configuration data (channel IDs, owner IDs, room type) in Red's Config. No external data is collected.",
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 10, 9],
+  "tags": ["voice", "utility", "moderation", "autoroom"],
+  "hidden": false
+}
