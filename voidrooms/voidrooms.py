@@ -160,9 +160,28 @@ class VoidRooms(commands.Cog):
         dest_id = await self.config.guild(guild).dest_category()
         mode = await self.config.guild(guild).default_mode()
         if not dest_id:
+            try:
+                await member.send("VoidRooms is not fully configured (no destination category set). Ask an admin to run `[p]voidroomsset source`.")
+            except discord.HTTPException:
+                pass
             return
+
         category = guild.get_channel(dest_id)
         if not category or not isinstance(category, discord.CategoryChannel):
+            try:
+                await member.send("VoidRooms destination category is invalid. Ask an admin to reconfigure it.")
+            except discord.HTTPException:
+                pass
+            return
+
+        # Check bot permissions
+        me = guild.me
+        if not me.guild_permissions.manage_channels or not me.guild_permissions.move_members:
+            try:
+                await member.send("I don't have the required permissions (Manage Channels + Move Members) to create Void Rooms.")
+            except discord.HTTPException:
+                pass
+            log.error("Missing permissions in guild %s", guild.id)
             return
 
         name = self._get_room_name(member)
@@ -175,15 +194,27 @@ class VoidRooms(commands.Cog):
                 overwrites=overwrites,
                 reason=f"VoidRooms created by {member}"
             )
+            # Move the user
             await member.move_to(new_channel, reason="VoidRooms: move to new room")
+            # Store ownership
             await self.config.channel(new_channel).owner.set(member.id)
             await self.config.channel(new_channel).mode.set(mode)
             await self.config.channel(new_channel).source.set(source.id)
+            # Notify
             await self._notify_creator(member, new_channel, mode)
-        except discord.Forbidden:
-            log.error("Missing permissions to create/move in %s", guild.id)
+            log.info("Created VoidRoom %s for %s in %s", new_channel.id, member.id, guild.id)
+        except discord.Forbidden as e:
+            log.error("Forbidden while creating VoidRoom in %s: %s", guild.id, e)
+            try:
+                await member.send("I couldn't create or move you to the Void Room (permission error).")
+            except discord.HTTPException:
+                pass
         except discord.HTTPException as e:
             log.exception("Failed to create VoidRoom: %s", e)
+            try:
+                await member.send("Something went wrong while creating your Void Room. Please try again.")
+            except discord.HTTPException:
+                pass
 
     # -------------------------------------------------------------------------
     # Commands
